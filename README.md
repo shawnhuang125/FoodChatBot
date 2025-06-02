@@ -1,7 +1,7 @@
 
 # 專題團隊管理制度 v5.5
 ## 導覽
-- [進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Til_now.md)
+- [進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Progress_Overview.md)
 - [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
 - [資料流與專案架構]()
 - [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
