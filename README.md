@@ -1,14 +1,13 @@
 
 # 專題團隊管理制度 v5.5
 ## 導覽
-- [最新的database]()
+- [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 - [開會總攬]()
 - [資料流與專案架構]()
 - []()
 
-- [下載連結](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 
-**承諾：**
+## 承諾
 - 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
 - 尊重他人專業分工，不干涉他人領域，不隨意批評，只提出建設性建議。
 - 共同維護團隊秩序，任何問題及時溝通，並以成果為導向作為最終決策標準。
