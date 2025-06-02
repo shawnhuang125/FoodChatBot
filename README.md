@@ -2,7 +2,7 @@
 # 專題團隊管理制度 v5.5
 ## 導覽
 - [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
-- [開會總攬]()
+- [開會總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%80%B2%E5%BA%A6%E5%9B%9E%E5%A0%B1%E5%8D%80/README.md)
 - [資料流與專案架構]()
 - []()
 
