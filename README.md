@@ -1,9 +1,18 @@
 
 # 專題團隊管理制度 v5.5
-
+## 導覽
+- 
 ## 一、宣言與承諾
+### 下載專區
+- [文章爬蟲程式git連結](https://github.com/shawnhuang125/pyscraper_selenium)
+我們是一個以目標為導向的實踐型團隊。專題不只是學校的作業，這份專題代表著每一位成員的努力、責任與價值，將成為我們未來升學、求職、甚至創業時最重要的作品集之一
+### 開會總攬
+- [20250325開會紀錄](https://1drv.ms/p/c/2246da9308bf8a0b/EY8s_3oZB7dFvPo1tj1f-BQBF-IP_tmFVuH6YqcgQ0rsUA?e=fmK296)
+## 八.專案資料流規劃圖
+- ![美食機器人架構圖v2 0](https://github.com/user-attachments/assets/b35151f5-3685-4233-ba9e-e141861fbc5e)
 
-我們是一個以目標為導向的實踐型團隊。專題不只是學校的作業，這份專題代表著每一位成員的努力、責任與價值，將成為我們未來升學、求職、甚至創業時最重要的作品集之一。
+### 最新版database
+- [下載連結](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 
 **承諾：**
 - 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
@@ -102,11 +111,7 @@
 
 原則為：只看事實，不看人情。決議結果必須公開透明。
 
-## 八.專案資料流規劃圖
-- ![美食機器人架構圖v2 0](https://github.com/user-attachments/assets/b35151f5-3685-4233-ba9e-e141861fbc5e)
 
-## 最新版database
-- [下載連結](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 
 ## 九.進度總攬(截至20250428)
 - **SQL Server + Main Server(API)**
@@ -192,7 +197,3 @@
     使用者測試:測試案例撰寫
     使用者測試:協助調試並提出改進建議
     ```
-## 下載專區
-- [文章爬蟲程式git連結](https://github.com/shawnhuang125/pyscraper_selenium)
-## 開會總攬
-- [20250325開會紀錄](https://1drv.ms/p/c/2246da9308bf8a0b/EY8s_3oZB7dFvPo1tj1f-BQBF-IP_tmFVuH6YqcgQ0rsUA?e=fmK296)
