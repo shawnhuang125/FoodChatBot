@@ -131,7 +131,7 @@
     Map-API Service:設計(黃律嘉)(已完成)
     Map-API Service:部屬(黃律嘉)
     Map-API Service:API整合資料庫檔案傳送(黃律嘉)(已完成)
-    Map-API Service:Food-Data Service Server部署說明文件(黃律嘉)
+    Map-API Service:部署說明文件(黃律嘉)
     ```
 - **FoodChatBot Server**
     -  [說明文件下載連結](https://docs.google.com/presentation/d/1tlU4ICzwZ8mPA4F13kG6lmIv51HImycuguh58RysZjw/edit?usp=sharing)
