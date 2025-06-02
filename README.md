@@ -1,11 +1,10 @@
 
 # 專題團隊管理制度 v5.5
 ## 導覽
-- [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 - [進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Til_now.md)
-- [資料流與專案架構]()
 - [開會總攬]()
-
+- [資料流與專案架構]()
+- [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
 
 ## 承諾
 - 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
