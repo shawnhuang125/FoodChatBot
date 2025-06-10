@@ -5,6 +5,7 @@
 - [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
 - [資料流與專案架構](https://github.com/shawnhuang125/Graduation-Project/blob/main/architecture.md)
 - [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYr1AdYlxGJHtgkyPYOJpTMBgO_IT5jbMH9XH_GsDwhDCQ?e=xXhBeZ)
+- [美食聊天機器人報告.pptx](https://1drv.ms/p/c/2246da9308bf8a0b/EUfF0d8FF3hAi79zfphgryQB4P851QxNNHQiZLQCdCautA?e=lIhbDl)
 
 ## 承諾
 - 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
