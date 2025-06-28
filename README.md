@@ -5,7 +5,7 @@
 - [版本控制](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6.md)
 - [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
 - [資料流與專案架構](https://github.com/shawnhuang125/Graduation-Project/blob/main/architecture.md)
-- [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EdsRnxLYSiJEmgKBNwh14CsBA9ILIfOa5vjp6F3wEp3mqQ?e=zSc3g1)
+- [最新的database](https://1drv.ms/u/c/2246da9308bf8a0b/EYBBanhA0ZhDuBhcuRD4ai0BCvWyAecA-W7yd1htyWuIZg?e=oN4rOa)
 - [美食聊天機器人報告.pptx](https://1drv.ms/p/c/2246da9308bf8a0b/EUfF0d8FF3hAi79zfphgryQB4P851QxNNHQiZLQCdCautA?e=lIhbDl)
 
 ## 承諾
