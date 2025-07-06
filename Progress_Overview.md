@@ -26,7 +26,6 @@
 - **FoodChatBot Server**
     -  [說明文件下載連結](https://docs.google.com/presentation/d/1tlU4ICzwZ8mPA4F13kG6lmIv51HImycuguh58RysZjw/edit?usp=sharing)
     -  [FoodChatBot Service Server部署說明文件下載連結]()
-    -  [stt流程圖/文件link](https://docs.google.com/presentation/d/10EkGapbMLE5l30lN_y5RZQrFouDZw7q4aCedkaZLz6M/edit?usp=drive_link)
     -  說明文件下載連結.....
     ```
     FoodChatot Service:規劃架構與技術選型(陳名輔)(已完成)
@@ -51,6 +50,7 @@
 - **口譯功能服務**
     - [說明文件下載連結](https://docs.google.com/presentation/d/1b-JDRvySwyjfmx6IcQbTskFVm9phBgWz/edit?usp=drive_link&ouid=108367324358752546044&rtpof=true&sd=true)
     - [說明文件下載連結](https://docs.google.com/presentation/d/1SgvoiNP5a1w3FEKKdz6k3pUUXypjBPpW/edit?usp=sharing&ouid=108367324358752546044&rtpof=true&sd=true)
+    -  [stt流程圖/文件link](https://docs.google.com/presentation/d/10EkGapbMLE5l30lN_y5RZQrFouDZw7q4aCedkaZLz6M/edit?usp=drive_link)
     - [STT Service Server部署說明文件下載連結]()
     ```
     口譯功能服務:規劃架構與技術選型(王羿辰)(已完成)
