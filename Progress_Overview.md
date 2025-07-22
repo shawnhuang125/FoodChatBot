@@ -13,7 +13,6 @@
     Main Server(API):部署說明文件(吳富民)
     ```
 - **Map-API Service**
-    -  [暑假進度](https://docs.google.com/presentation/d/1PMVar6vAP-rjoMt6fr1B1X6FfTI0jfbaXpHDOdZ9cFk/edit?usp=sharing)
     -  [說明文件下載連結](https://1drv.ms/p/c/2246da9308bf8a0b/ET37_BkFFsRLsb-BHIPy7QQB9ZdrLuaBUBnml9bjtL-oQw?e=i4WvHO)
     -  [Food-Data Service Server部署說明文件下載連結]()
     -  說明文件下載連結.....
@@ -25,6 +24,7 @@
     Map-API Service:部署說明文件(黃律嘉)
     ```
 - **FoodChatBot Server**
+    -  [暑假進度](https://docs.google.com/presentation/d/1PMVar6vAP-rjoMt6fr1B1X6FfTI0jfbaXpHDOdZ9cFk/edit?usp=sharing)
     -  [說明文件下載連結](https://docs.google.com/presentation/d/1tlU4ICzwZ8mPA4F13kG6lmIv51HImycuguh58RysZjw/edit?usp=sharing)
     -  [FoodChatBot Service Server部署說明文件下載連結]()
     -  [FoodChatBot Service Server部署說明文件下載連結]()
