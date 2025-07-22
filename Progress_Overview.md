@@ -26,7 +26,8 @@
 - **FoodChatBot Server**
     -  [說明文件下載連結](https://docs.google.com/presentation/d/1tlU4ICzwZ8mPA4F13kG6lmIv51HImycuguh58RysZjw/edit?usp=sharing)
     -  [FoodChatBot Service Server部署說明文件下載連結]()
-    -  說明文件下載連結.....
+    -  [FoodChatBot Service Server部署說明文件下載連結]()
+    -  
     ```
     FoodChatot Service:規劃架構與技術選型(陳名輔)(已完成)
     FoodChatot Service:設計(陳名輔)
