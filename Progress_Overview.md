@@ -13,8 +13,8 @@
     Main Server(API):部署說明文件(吳富民)
     ```
 - **Map-API Service**
-    -  [說明文件下載連結](https://1drv.ms/p/c/2246da9308bf8a0b/ET37_BkFFsRLsb-BHIPy7QQB9ZdrLuaBUBnml9bjtL-oQw?e=i4WvHO)
-    -  [Food-Data Service Server部署說明文件下載連結]()
+    -  [Map-API Service說明文件下載連結](https://1drv.ms/p/c/2246da9308bf8a0b/ET37_BkFFsRLsb-BHIPy7QQB9ZdrLuaBUBnml9bjtL-oQw?e=i4WvHO)
+    -  [Map-API Service說明文件下載連結20250729](https://1drv.ms/p/c/2246da9308bf8a0b/ERbCK6D4suVHnpHRENHDjosBPQOpCadlz0LLUwln1bsnlw?e=Q9IizO)
     -  說明文件下載連結.....
     ```
     Map-API Service:規劃架構與技術選型(黃律嘉)(已完成)
