@@ -38,7 +38,7 @@
     ```
 - **手機APP**
     -  [說明文件下載連結](https://1drv.ms/f/c/3538e5ec697121cc/EsJL1Ko_uCxOshPMCgd-IkYBMVwdePoDAk_nxbGDvxJiaw?e=2zXGqx)
-    -  [API操作元件說明文件下載連結]()
+    -  [API操作元件說明文件下載連結](https://1drv.ms/f/c/3538e5ec697121cc/EluXzKbjDKdKo9-hsaicDssBuYjU2Qou5o7HsTeM030YzQ?e=3MqLcf)
     -  [API操作元件說明文件下載連結]()
     ```
     手機APP:規劃架構與技術選型(林聖峰)(已完成)
