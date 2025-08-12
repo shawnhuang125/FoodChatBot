@@ -1,5 +1,6 @@
 
 ## 導覽
+
 - [每個人的進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Progress_Overview.md)
 - [版本控制](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6.md)
 - [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
@@ -8,6 +9,7 @@
 - [美食聊天機器人報告.pptx](https://1drv.ms/p/c/2246da9308bf8a0b/EUfF0d8FF3hAi79zfphgryQB4P851QxNNHQiZLQCdCautA?e=lIhbDl)
 
 ## 承諾
+
 - 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
 - 尊重他人專業分工，不干涉他人領域，不隨意批評，只提出建設性建議。
 - 共同維護團隊秩序，任何問題及時溝通，並以成果為導向作為最終決策標準。
