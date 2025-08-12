@@ -1,5 +1,4 @@
 
-# 專題團隊管理制度 v5.5
 ## 導覽
 - [每個人的進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Progress_Overview.md)
 - [版本控制](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6.md)
