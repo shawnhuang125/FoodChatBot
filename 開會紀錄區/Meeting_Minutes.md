@@ -11,3 +11,4 @@
 - [20250722](https://1drv.ms/p/c/2246da9308bf8a0b/EQBVUJvGNilHqpNqnaxrI6UBcNd9UOoZ3gP3OYuPoMBKWA?e=iL2yLe)
 - [20250729](https://1drv.ms/p/c/2246da9308bf8a0b/EUEJk2xaoThGnRfWtvmTmCgBiXTcQkGFeSoAZL8GAFfWeQ?e=MVsOxc)
 - [20250805](https://1drv.ms/p/c/2246da9308bf8a0b/EY61K7G3CLJJh5zwpCYshr8B865dhmaW4mqRNNmxmHumeQ?e=WInFrG)
+- [20250812](https://1drv.ms/p/c/2246da9308bf8a0b/EY-IMUQGsb5PnFzPxYTrIzsBOEaHmfPfJyNHtBEh7HlIww?e=DJ4Ebo)
