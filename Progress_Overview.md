@@ -48,6 +48,7 @@
     - [說明文件下載連結](https://docs.google.com/presentation/d/1b-JDRvySwyjfmx6IcQbTskFVm9phBgWz/edit?usp=drive_link&ouid=108367324358752546044&rtpof=true&sd=true)
     - [說明文件下載連結](https://docs.google.com/presentation/d/1SgvoiNP5a1w3FEKKdz6k3pUUXypjBPpW/edit?usp=sharing&ouid=108367324358752546044&rtpof=true&sd=true)
     -  [stt流程圖/文件link](https://docs.google.com/presentation/d/10EkGapbMLE5l30lN_y5RZQrFouDZw7q4aCedkaZLz6M/edit?usp=drive_link)
+    -  [暑假進度總覽](https://docs.google.com/presentation/d/1NoL7gH2BELx8pveS6byDjkdOVDfLbaiqWkz0vmkX1x0/edit?usp=drive_link)
     ```
     口譯功能服務:規劃架構與技術選型(王羿辰)(已完成)
     口譯功能服務:設計(王羿辰)(已完成)
