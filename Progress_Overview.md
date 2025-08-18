@@ -25,7 +25,7 @@
 - **FoodChatBot Server**
     -  [暑假進度](https://docs.google.com/presentation/d/1PMVar6vAP-rjoMt6fr1B1X6FfTI0jfbaXpHDOdZ9cFk/edit?usp=sharing)
     -  [說明文件下載連結](https://docs.google.com/presentation/d/1tlU4ICzwZ8mPA4F13kG6lmIv51HImycuguh58RysZjw/edit?usp=sharing)
-    -  
+    -  [暑假進度總覽](https://docs.google.com/presentation/d/1rfZDtnkLIUv4Ypc2VFZvcGty7Gay59Gr/edit?usp=sharing&ouid=112702265104328074709&rtpof=true&sd=true)
     ```
     FoodChatot Service:規劃架構與技術選型(陳名輔)(已完成)
     FoodChatot Service:設計(陳名輔)
