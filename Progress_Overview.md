@@ -2,7 +2,7 @@
 - **Main Server(API)**
     -  [說明文件下載連結](https://docs.google.com/presentation/d/13eR6K0OvtLCKswd_teb7XAT-YY66nJXI/edit?usp=sharing&ouid=106887199356708617838&rtpof=true&sd=true)
     -  [Main Server(API)部署說明文件下載連結]()
-    -  說明文件下載連結.....
+    -  [暑假進度](https://docs.google.com/presentation/d/1Lb58omjLI5HNrocgTpqH9G1tzQx11Z8h/edit?usp=drive_link&ouid=106887199356708617838&rtpof=true&sd=true)
     ```
     SQL Server:規劃架構與技術選型(吳富民)(已完成)
     SQL Server:配置PHPmyadmin(吳富民)(已完成)
