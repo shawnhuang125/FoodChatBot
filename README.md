@@ -7,7 +7,7 @@
 - [資料流與專案架構](https://github.com/shawnhuang125/Graduation-Project/blob/main/architecture.md)
 - [最新的database schema](https://1drv.ms/u/c/2246da9308bf8a0b/EVI9MspTCUZDoenVjcbgEvcBNxa3z9IvWXR1brDLJccu4w?e=fV6bNA)
 - [美食聊天機器人報告.pptx](https://1drv.ms/p/c/2246da9308bf8a0b/EUfF0d8FF3hAi79zfphgryQB4P851QxNNHQiZLQCdCautA?e=lIhbDl)
-- [Google Drive雲端硬碟]()
+- [Google Drive雲端硬碟](https://drive.google.com/drive/folders/1-bLqt7iSnY3XU9wR-fNMi4GLRrMWOo15?usp=sharing)
 
 ## 承諾
 
