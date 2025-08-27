@@ -2,7 +2,9 @@
 ## 導覽
 
 - [每個人的進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Progress_Overview.md)
+- [每個人的進度總攬google_drive]()
 - [版本控制](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6.md)
+- [版本控制google_drive]()
 - [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
 - [資料流與專案架構](https://github.com/shawnhuang125/Graduation-Project/blob/main/architecture.md)
 - [最新的database schema](https://1drv.ms/u/c/2246da9308bf8a0b/EVI9MspTCUZDoenVjcbgEvcBNxa3z9IvWXR1brDLJccu4w?e=fV6bNA)
