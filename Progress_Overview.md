@@ -12,15 +12,17 @@
     Main Server(API):API連線說明文件製作(吳富民)
     Main Server(API):部署說明文件(吳富民)
     ```
-- **Map-API Service + SQL Server + Vector DB**
-    -  [Map-API專題進度回報](https://1drv.ms/p/c/2246da9308bf8a0b/ERbCK6D4suVHnpHRENHDjosBPQOpCadlz0LLUwln1bsnlw?e=ScED0x)
+- **資料工程**
+    -  [資料工程-專題進度回報](https://1drv.ms/p/c/2246da9308bf8a0b/ERbCK6D4suVHnpHRENHDjosBPQOpCadlz0LLUwln1bsnlw?e=ScED0x)
     -  說明文件下載連結.....
     ```
-    Map-API Service:規劃架構與技術選型(黃律嘉)(已完成)
-    Map-API Service:設計(黃律嘉)(已完成)
-    Map-API Service:部屬(黃律嘉)
-    Map-API Service:API整合資料庫檔案傳送(黃律嘉)(已完成)
-    Map-API Service:部署說明文件(黃律嘉)
+    資料工程-Map-API Service規劃架構與技術選型(黃律嘉)(已完成)
+    資料工程-Map-API Service設計(黃律嘉)(已完成)
+    資料工程-Map-API Service部屬(黃律嘉)
+    資料工程-Map-API ServiceAPI整合資料庫檔案傳送(黃律嘉)(已完成)
+    資料工程-Vector DB配置(未完成)
+    資料工程-使用ai分類美食(未完成)
+    資料工程-DB_Rebuild-增加food_type,food_category,food_area,food_country,cuisine_region欄位(未完成)
     ```
 - **FoodChatBot Server**
     -  [暑假進度](https://docs.google.com/presentation/d/1PMVar6vAP-rjoMt6fr1B1X6FfTI0jfbaXpHDOdZ9cFk/edit?usp=sharing)
