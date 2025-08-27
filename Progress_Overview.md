@@ -16,10 +16,10 @@
     -  [資料工程-專題進度回報](https://1drv.ms/p/c/2246da9308bf8a0b/ERbCK6D4suVHnpHRENHDjosBPQOpCadlz0LLUwln1bsnlw?e=ScED0x)
     -  說明文件下載連結.....
     ```
-    資料工程-Map-API Service規劃架構與技術選型(黃律嘉)(已完成)
-    資料工程-Map-API Service設計(黃律嘉)(已完成)
-    資料工程-Map-API Service部屬(黃律嘉)
-    資料工程-Map-API ServiceAPI整合資料庫檔案傳送(黃律嘉)(已完成)
+    資料工程-Map-API資料蒐集-規劃架構與技術選型(黃律嘉)(已完成)
+    資料工程-Map-API資料蒐集-設計(黃律嘉)(已完成)
+    資料工程-Map-API資料蒐集-部屬(黃律嘉)
+    資料工程-Map-API資料蒐集-API整合資料庫檔案傳送(黃律嘉)(已完成)
     資料工程-Vector DB配置(未完成)
     資料工程-使用ai分類美食(未完成)
     資料工程-DB_Rebuild-增加food_type,food_category,food_area,food_country,cuisine_region欄位(未完成)
