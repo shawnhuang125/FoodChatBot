@@ -1,25 +1,6 @@
 
 ## 導覽
 
-- [每個人的進度總攬](https://github.com/shawnhuang125/Graduation-Project/blob/main/Progress_Overview.md)
-- [每個人的進度總攬google_drive]()
-- [版本控制](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6.md)
-- [版本控制google_drive]()
-- [開會紀錄區](https://github.com/shawnhuang125/Graduation-Project/blob/main/%E9%96%8B%E6%9C%83%E7%B4%80%E9%8C%84%E5%8D%80/Meeting_Minutes.md)
-- [資料流與專案架構](https://github.com/shawnhuang125/Graduation-Project/blob/main/architecture.md)
-- [最新的database schema](https://1drv.ms/u/c/2246da9308bf8a0b/EVI9MspTCUZDoenVjcbgEvcBNxa3z9IvWXR1brDLJccu4w?e=fV6bNA)
-- [美食聊天機器人報告.pptx](https://1drv.ms/p/c/2246da9308bf8a0b/EUfF0d8FF3hAi79zfphgryQB4P851QxNNHQiZLQCdCautA?e=lIhbDl)
-- [Google Drive雲端硬碟](https://drive.google.com/drive/folders/1-bLqt7iSnY3XU9wR-fNMi4GLRrMWOo15?usp=sharing)
-
-## 承諾
-
-- 每個人都對自己的工作負責，不推卸、不敷衍，專注解決問題。
-- 尊重他人專業分工，不干涉他人領域，不隨意批評，只提出建設性建議。
-- 共同維護團隊秩序，任何問題及時溝通，並以成果為導向作為最終決策標準。
-- 在遇到困難時，提出解決方案，而不是抱怨；遇到瓶頸時，尋求協助，而不是躲避。
-- 每次會議後留下書面紀錄，確保資訊透明與責任明確。
-- 所有的工作成果，將真實記錄在專題成果報告中，並公平分配在個人作品集與專題發表資料上，讓每一位成員的貢獻都能被看見。
-
 ## 二、角色與權責分工
 
 | 角色 | 負責範圍  |人員名稱|
@@ -36,30 +17,4 @@
 - **Do（執行）**：各成員根據分工執行任務，並於 GitHub 回報進度；每週至少回報一次，未完成者持續回報，已完成項目可結束回報。
 - **Check（檢查）**：每週舉行進度會議，技術負責人及文件負責人對照 GitHub 回報與目標，檢視進度與問題，將會議紀錄整理存檔於 Google Docs。
 - **Act（改進）**：若發現進度落後、分工不均、制度不完善，需提出改進方案；改進方案可由任何成員提出，經技術負責人審核後執行。
-
-## 四、延期處理機制
-
-為確保專題進度，允許在必要時申請延期，需遵守以下原則：
-- 延期原因需具體說明（如卡在哪個功能、需要什麼協助）。
-- 申請時須提出新的交付日期，並承諾進度更新時間。
-- 未主動提出延期，直接未交付視為無故拖延，依照團隊處理流程辦理（提醒 → 警告 → 移出團隊）。
-
-## 五、技術選型與架構調整容許機制
-- 專題開發過程中，允許在遇到無法實現或技術瓶頸時，提出架構修改或技術選型調整，但必須遵守以下原則：
-  - 需清楚說明問題原因（例如無法實現、效能問題、技術限制）。
-  - 必須提出可行的替代方案，不能只說問題沒有解法。
-  - 修改決策必須記錄於Google Docs並於會議中主動提出。
-
-
-## 六、嚴重違規處理流程
-
-任何成員皆可提出對違反規範成員的移除建議，需基於實際紀錄（如三次拖延、干涉他人、無故缺席等）。
-
-流程為：
-1. 提案人提出 GitHub Issue 或會議紀錄記錄具體事實
-2. 團隊討論（不超過 20 分鐘）
-3. 技術負責人根據制度最終拍板決定是否請對方離開。
-
-原則為：只看事實，不看人情。決議結果必須公開透明。
-
 
