@@ -1,3 +1,4 @@
+# ./app/models/models.py
 from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 from app.utils.database_conn import Base
@@ -22,5 +23,5 @@ class PlaceAttribute(Base):
     food_type = Column(String(255))
     cuisine_type = Column(String(255))
     merchant_category = Column(String(255))
-    facility_tags = Column(JSON)
+    facility_tags = Column(Text)
     restaurant = relationship("Restaurant", back_populates="attributes")

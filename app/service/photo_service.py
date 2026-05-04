@@ -1,3 +1,4 @@
+# ./app/services/photo_services.py
 import os
 import json
 from typing import Optional, List
@@ -14,6 +15,9 @@ class PhotoService:
         
         # 2. 從環境變數讀取圖片 Base URL
         self.images_base_url = os.getenv("IMAGES_BASE_URL", "http://localhost:5003/images/")
+
+        logger.info(f"[PhotoService] 初始化完成 | 實體圖片目錄: {self.photos_dir}")
+        logger.info(f"[PhotoService] 初始化完成 | 圖片 Base URL: {self.images_base_url}")
 
         # 啟動時檢查目錄是否存在
         if not os.path.exists(self.photos_dir):
@@ -35,6 +39,8 @@ class PhotoService:
         if not os.path.exists(target_path) or not os.path.isfile(target_path):
             logger.warning(f"File not found: {target_path}")
             return "NOT_FOUND"
+        
+        logger.debug(f"[PhotoService] 圖片路徑驗證成功: {target_path}")
 
         return target_path
 
@@ -44,6 +50,8 @@ class PhotoService:
         """
         store_id_str = str(shop_id).zfill(3)
         photo_list = []
+
+        logger.info(f"[PhotoService] 開始搜尋店家 ID: {shop_id} (前綴: {store_id_str}) 的圖片...")
         
         for i in range(1, 11):
             photo_name = f"{store_id_str}{str(i).zfill(2)}.jpg"
@@ -52,6 +60,18 @@ class PhotoService:
             # 這裡直接檢查實體檔案是否存在
             if os.path.exists(file_path) and os.path.isfile(file_path):
                 # 拼接成外部訪問的 URL
-                photo_list.append(f"{self.images_base_url}{photo_name}")
+                final_url = f"{self.images_base_url}{photo_name}"
+                photo_list.append(final_url)
                 
+                # 記錄找到每一張圖片的詳細過程 (用 debug 層級，避免畫面太亂)
+                logger.debug(f"[PhotoService] 找到實體圖片: {file_path} -> 轉換為 URL: {final_url}")
+                
+        
+        # 總結搜尋結果
+        if photo_list:
+            logger.info(f"[PhotoService] 店家 ID: {shop_id} 搜尋完畢，共找到 {len(photo_list)} 張圖片。")
+        else:
+            logger.warning(f"[PhotoService] 店家 ID: {shop_id} 搜尋完畢，但沒有找到任何圖片！請檢查 {self.photos_dir} 內是否有 {store_id_str} 開頭的 jpg 檔。")
+
+
         return photo_list
