@@ -63,8 +63,11 @@ const reconnect = (e?: Event) => {
 
 // 初始化 Socket 連線 (對齊模擬器 5000 port)
 const socket: Socket = io('http://192.168.1.113:5000', {
-    transports: ['polling', 'websocket'],
-    reconnection: true
+    transports: ['polling', 'websocket'], // 建議保留 polling 以利手機握手
+    autoConnect: false, // 🟢 關鍵：改為手動連線
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    timeout: 20000
 });
 
 const scrollToBottom = async () => {
@@ -78,8 +81,15 @@ const scrollToBottom = async () => {
 };
 
 onMounted(() => {
+    // 1. 強制執行 Socket 連線
+    if (!socket.connected) {
+        console.log('%c[Socket] 正在嘗試建立初始連線...', 'color: #D4AF37;');
+        socket.connect();
+    }
+
     inputRef.value?.focus();
 
+    // 2. 監聽連線事件
     socket.on('connect', () => {
         isConnected.value = true;
         console.log('%c[Socket] 連線成功！', 'color: #4ade80; font-weight: bold;');
@@ -288,8 +298,10 @@ const handleCardClick = (title: string) => {
                     @click="reconnect"
                     @touchend.prevent="reconnect"
                     type="button"
-                    class="relative p-3 flex items-center justify-center rounded-full border border-[#D4AF37]/20 text-[#D4AF37]/70 
-                        z-[110] cursor-pointer touch-manipulation group"
+                    class="relative p-3 flex items-center justify-center rounded-full border border-[#D4AF37]/40 text-[#D4AF37]
+                        z-[110] cursor-pointer touch-manipulation group
+                        transition-all duration-200
+                        active:scale-90 active:bg-[#D4AF37]/20" 
                 >
                     <svg 
                         :class="[
@@ -380,9 +392,11 @@ const handleCardClick = (title: string) => {
             <!-- 2. 輸入框區域：初始置中，對話後置底 -->
             <div :class="[
                 'w-full transition-all duration-700 ease-in-out z-50',
-                messages.length <= 1 ? 'max-w-xl px-4' : 'fixed bottom-0 bg-[#0e0e0e] pt-10 pb-8 flex justify-center'
+                messages.length <= 1 
+                    ? 'max-w-xl px-4' 
+                    : 'fixed bottom-0 left-0 right-0 bg-[#0e0e0e] border-t border-white/5 pt-6 pb-safe flex justify-center shadow-[0_-20px_30px_10px_rgba(14,14,14,0.9)]'
             ]">
-                <div :class="['group w-full', messages.length <= 1 ? '' : 'max-w-4xl px-4']">
+                <div :class="['group w-full', messages.length <= 1 ? '' : 'max-w-4xl px-4 pb-[env(safe-area-inset-bottom)]']">
                     
                     <!-- 初始狀態燙金 LOGO -->
                     <div v-if="messages.length <= 1" class="mb-10 text-center animate-in fade-in zoom-in duration-1000">
@@ -464,8 +478,8 @@ const handleCardClick = (title: string) => {
 main {
     flex: 1;
     padding-top: 80px; 
-    padding-bottom: 280px; 
-    /* 🟢 確保 main 不會覆蓋到 Header 的點擊層 */
+    /* 🟢 修改：增加對安全區域的考慮，防止內容被輸入框擋死 */
+    padding-bottom: calc(160px + env(safe-area-inset-bottom)); 
     position: relative;
     z-index: 10;
 }
@@ -517,7 +531,17 @@ button {
 /* 🟢 針對 iPhone 底部安全區域適配 (防誤觸) */
 @media (max-width: 768px) {
     .fixed.bottom-0 {
-        padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+        /* 🟢 修正：增加實心背景色，防止內容穿透看到底 */
+        background-color: #0e0e0e !important;
+        /* 🟢 修正：移除模糊，避免 Safari 產生透明縫隙 */
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+        /* 🟢 修正：加入向上陰影，讓訊息滾入時更自然 */
+        shadow: 0 -20px 30px 10px rgba(14, 14, 14, 1);
+        padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
     }
+}
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
 }
 </style>
