@@ -1,0 +1,7 @@
+myenv/
+__pycache__/
+*.pyc
+.git/
+.env
+logs/
+photos/
