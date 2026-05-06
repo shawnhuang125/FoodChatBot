@@ -116,3 +116,81 @@ PHOTO_PATH = ""
 - 使用 SQLAlchemy 的 joinedload 預加載關聯表 Restaurant.attributes，避免 N+1 查詢問題。
 
 - 使用 FileResponse 高效率串流大型圖片檔案。
+
+## 部屬說明(適用database+business_api.docker-compose.zip)
+- 檢查`docker`環境
+```
+docker ps -a
+```
+- 將下載的`database+business_api.docker-compose.zip`解壓縮
+```
+sudo unzip database+business_api.docker-compose.zip
+```
+- 檢查是否成功
+```
+ls
+```
+要看到類似下面:
+```
+d-----          5/6/2026   9:02 PM                database+business_api.docker-compose
+```
+- 進入`docker-compose`資料夾
+```
+cd database+business_api.docker-compose/docker-compose/
+```
+- 確認目錄位置內容
+```
+ls
+```
+- 應該有下列檔案:
+```
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a----          5/6/2026   9:02 PM          91588 Business_api_v1.0.7.zip
+-a----          5/6/2026   9:02 PM           1594 docker-compose.txt
+-a----          5/6/2026   9:02 PM           1874 docker-compose.yaml
+-a----          5/6/2026   9:02 PM           2788 README.md
+```
+- 創立一個`.env`,並貼上以下內容:
+- `PHOTO_PATH`可以換成你自己的照片目錄位置
+- `DB_HOST`換成你自己要部屬的伺服器`IP Address`
+```
+# Database Configuration
+# set DB_HOST = mysql if you wanna deploy service by docker-compose
+DB_HOST=192.168.1.112
+DB_PORT=4404
+DB_USER=user
+DB_PASSWORD=User@534
+DB_NAME=foodchatbot_database
+# The Photo URL provides users read
+IMAGES_BASE_URL=http://192.168.1.112:5003/images/
+# The Photo Path that Business API needs to load from
+PHOTO_PATH=C:/devolopment_projects/Business_api/photos
+```
+
+- 使用`docker-compose`部屬服務
+```
+docker compose up -d
+```
+- 需等待5-10分鐘
+- 檢查服務狀態
+```
+docker ps -a
+```
+- 應該和下面一樣:
+```
+CONTAINER ID   IMAGE                                COMMAND                  CREATED          STATUS                    PORTS                                                             NAMES
+1de99d2d9037   docker-compose-business-api_v1.0.7   "uvicorn run:app --h…"   51 seconds ago   Up 19 seconds             0.0.0.0:5003->5003/tcp, [::]:5003->5003/tcp                       business_api_container_v1.0.7
+8899ff7651b4   phpmyadmin/phpmyadmin                "/docker-entrypoint.…"   51 seconds ago   Up 19 seconds             0.0.0.0:8080->80/tcp, [::]:8080->80/tcp                           phpmyadmin_container
+dd4f26289f36   mysql:8.0                            "docker-entrypoint.s…"   51 seconds ago   Up 50 seconds (healthy)   0.0.0.0:4404->3306/tcp, [::]:4404->3306/tcp                       mysql_container
+452a7c44be7c   qdrant/qdrant:latest                 "./entrypoint.sh"        51 seconds ago   Up 50 seconds             0.0.0.0:6333-6334->6333-6334/tcp, [::]:6333-6334->6333-6334/tcp   qdrant_container
+```
+- 確認`business-api_v1.0.7`服務狀態,應該要跟下面一樣:
+```
+business_api_container_v1.0.7  | 2026-05-06 12:36:21 [INFO] [PlaceService] - [PhotoService] 初始化完成 | 實體圖片目錄: /app/photos
+business_api_container_v1.0.7  | 2026-05-06 12:36:21 [INFO] [PlaceService] - [PhotoService] 初始化完成 | 圖片 Base URL: http://192.168.1.112:5003/images/
+business_api_container_v1.0.7  | INFO:     Started server process [1]
+business_api_container_v1.0.7  | INFO:     Waiting for application startup.
+business_api_container_v1.0.7  | INFO:     Application startup complete.
+business_api_container_v1.0.7  | INFO:     Uvicorn running on http://0.0.0.0:5003 (Press CTRL+C to quit)
+```
