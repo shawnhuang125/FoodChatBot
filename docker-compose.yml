@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  gateway-app:
+    build: .
+    container_name: streaming-gateway
+    ports:
+      - "5000:5000"
+    env_file:           # 告訴 Docker 啟動時把 .env 的變數全塞進容器裡
+      - .env
+    depends_on:
+      - redis-server
+    restart: unless-stopped
+
+  redis-server:
+    image: "redis:alpine"
+    container_name: gateway-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
