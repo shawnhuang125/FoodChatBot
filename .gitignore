@@ -1,0 +1,49 @@
+# --- Python 編譯檔 (一定要忽略) ---
+__pycache__/
+*.py[cod]
+*.class
+
+# --- 虛擬環境 (根據你的截圖是 myenv) ---
+myenv/
+venv/
+env/
+.venv/
+
+# --- 機敏設定檔 (絕對不能上傳) ---
+.env
+.flaskenv
+
+# --- Log 紀錄檔 (根據你的截圖有 logs 資料夾與 app.log) ---
+*.log
+logs/
+app/logs/
+
+# --- IDE 設定檔 (VS Code / PyCharm) ---
+.vscode/
+.idea/
+
+# --- 作業系統產生的檔案 ---
+.DS_Store
+Thumbs.db
+
+# --- 資料庫相關 (如果未來有本地 SQLite) ---
+*.sqlite3
+*.db
+
+# 阻止上傳微調後的模型資料夾
+m3_food_finetuned/
+
+# 阻止上傳目錄下所有的 JSON 檔案
+*.json
+
+# 如果你只想針對特定的 JSON 檔案（例如截圖中的格式化資料）
+formatted_data_*.json
+# 移除qdrant的連線測試檔案
+test_qdrant.py
+
+# --- LLM / Ollama 模型相關 (防止手動下載的模型被上傳) ---
+*.gguf
+*.bin
+*.onnx
+models/
+ollama_models/
