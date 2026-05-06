@@ -162,16 +162,22 @@ async def relay_ai_stream(sid: str, payload: dict):
     """非同步串流中繼器與 JSON 容錯解析引擎"""
     payload["sid"] = sid 
     try:
+        # 📌【新增】印出即將轉發給 AI 端的請求內容
         logging.info(f"📡 [轉發] 準備透過 HTTP 連線池轉發至 AI Bot")
+        logging.info(f"   ├─ 🎯 目標網址: {TEXT_BOT_API_URL}")
+        logging.info(f"   └─ 📦 轉發 Payload: {json.dumps(payload, ensure_ascii=False)}")
+        
         async with http_client.stream("POST", TEXT_BOT_API_URL, json=payload) as resp:
             if resp.status_code == 200:
                 logging.info("🌊 [接收] 開始接收打字機資料...")
+                
                 async for chunk in resp.aiter_text():
                     if not chunk: continue
                     if not await redis_db.sismember("active_sids", sid): break # 離線斷號保護
                     
                     chunk_safe = str(chunk)
-                    print(chunk_safe, end="", flush=True)
+                    # 📌【修改】原本只用 print，這裡改成用 logging.info 明確印出收到的 Chunk 內容，方便 app.log 捕獲
+                    logging.info(f"   📥 [串流 Chunk]: {chunk_safe.strip()}")
                     
                     # JSON 容錯解析引擎
                     try:
@@ -180,7 +186,6 @@ async def relay_ai_stream(sid: str, payload: dict):
                     except json.JSONDecodeError:
                         await sio.emit("chat_stream", {"text": chunk_safe}, to=sid)
 
-                print("\n") 
                 if await redis_db.sismember("active_sids", sid):
                     await sio.emit("chat_stream", {"done": True}, to=sid)
                     logging.info("✅ [完成] 已發送 done: true 給前端")
@@ -217,15 +222,23 @@ async def forward_search_result(request: Request):
     logging.info("🔍 [檢索觸發] 收到 /search_result 請求")
     try:
         payload = await request.json()
+        # 📌【新增】印出搜尋 API 收到的原始前端參數
+        logging.info(f"   ├─ 📦 原始請求 Payload: {json.dumps(payload, ensure_ascii=False)}")
+        
         response = await http_client.post(PLACE_SEARCH_URL, json=payload)
         
         if response.status_code == 200:
+            result_json = response.json()
             logging.info(f"📤 [檢索成功] 已從資料庫取得結果")
+            # 📌【新增】印出資料庫或搜尋後端返回的結果
+            logging.info(f"   └─ 📦 取得數據內容: {json.dumps(result_json, ensure_ascii=False)}")
             logging.info("▲"*50 + "\n")
-            return response.json()
+            return result_json
         else:
+            logging.error(f"❌ [檢索失敗] 後端回應狀態碼: {response.status_code}")
             return {"error": "forwarding failed", "status_code": response.status_code}
     except Exception as e:
+        logging.error(f"❌ [檢索崩潰] 發生異常: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 # ----------------- Socket.IO 事件 -----------------
@@ -248,9 +261,13 @@ async def gw_text_input(sid, data):
     await update_heartbeat(sid)
     logging.info("\n" + "▼"*50)
     logging.info(f"📥 [接收前端] 收到來自 SID: {sid} 的請求")
+    # 📌【新增】印出前端經由 Socket.IO 傳過來的原始資料
+    logging.info(f"   ├─ 📦 原始 Data: {data}")
     
     # 呼叫第三層：指令攔截與封裝
     is_stop, is_reset, payload = parse_and_intercept_commands(data)
+    # 📌【新增】印出被 parse_and_intercept_commands 封裝後的最終 Payload
+    logging.info(f"   ├─ 📦 封裝後 Payload: {payload}")
 
     if is_stop:
         logging.info(f"⏹️ [停止指令] 通知 AI (靜默模式)...")
