@@ -1,39 +1,107 @@
-# 🚀 AI Streaming Gateway (四層模組化架構)
+# 🚀 FoodChatBot - 核心 API 網關 (API Gateway)
 
-這是一個專為高併發 AI 聊天與串流回應（Streaming）設計的 API 網關。基於 **FastAPI** 與 **Socket.IO** 構建，並整合 **Redis** 進行分散式狀態管理與頻率限制。此專案已完全容器化，可透過 Docker Compose 實現一鍵部署。
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socket.io)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Redis](https://img.shields.io/badge/redis-%23DD0031.svg?style=for-the-badge&logo=redis&logoColor=white)
 
-## ✨ 核心特色與架構介紹
+這是 **FoodChatBot** 專案的核心通訊中心，基於 **FastAPI** 與 **Socket.IO** 打造。負責處理前端 App 的即時通訊請求、進行 IP 限流與連線狀態管理，並透過 HTTP 連線池高效轉發請求至後端 AI 處理伺服器。
 
-本系統採用**四層模組化架構**設計，確保高內聚與低耦合：
+---
 
-1. **🌐 對外通訊與路由層 (API & Events)**
-   - 透過 `FastAPI` 處理標準 HTTP 請求（如狀態查詢、強制清理、檢索中繼）。
-   - 透過 `python-socketio` (ASGI) 處理全雙工的 WebSocket 連線，維持與客戶端的長連線。
-2. **🛡️ 狀態管理與安全監控層 (Security & State)**
-   - **IP 限流機制**：利用 Redis 實現 2 秒內限連線一次的防刷機制。
-   - **會話管理與心跳機制**：追蹤 `active_sids`，確保連線有效性。
-   - **背景自癒巡檢**：定期執行 `monitor_loop`，自動回收超過 10 分鐘無回應的「殭屍連線」與「幽靈 SID」，釋放記憶體。
-3. **🧠 核心處理與封裝組件 (Core Processing)**
-   - **非同步串流轉發引擎**：使用 `httpx` 的非同步連線池，將使用者的輸入轉發至遠端 AI 伺服器，並透過 `aiter_text()` 接收打字機（Streaming）效果。
-   - **JSON 容錯解析**：內建防呆機制，能妥善處理 AI 伺服器回傳的不完整或非標準 JSON 格式。
-4. **🧱 底層儲存與外部通訊 (Storage & Clients)**
-   - 整合 `redis.asyncio` 進行極速的 Key-Value 存取。
-   - 使用生命週期管理器 (`lifespan`) 妥善初始化與關閉 Redis / HTTPX 連線池資源。
+## ✨ 核心優勢與架構
 
-## 🛠️ 技術堆疊
+* **單進程非同步架構 (Single-Worker Async)**：徹底解決 Socket.IO 在分散式環境下握手階段的 `Invalid session` 問題，確保 WebSocket 連線極度穩定。
+* **Redis 分散式狀態管理**：內建連線心跳偵測 (Heartbeat)、殭屍連線自動回收與自癒機制。
+* **防刷限流機制**：具備 IP 頻率限制（2 秒內限連線 1 次），有效保護後端 AI 資源不被惡意消耗。
+* **Docker 容器化部署**：一鍵啟動，環境統一，確保「開發、測試、生產」環境一致。
 
-* **Backend Framework**: Python 3.10, FastAPI, Uvicorn (搭載 uvloop)
-* **WebSocket**: python-socketio
-* **Async HTTP Client**: HTTPX
-* **In-Memory DB**: Redis
-* **Containerization**: Docker, Docker Compose
+---
 
-## 📂 專案目錄結構
+## 🛠️ 開發環境需求
 
-```text
-.
-├── main.py                # 應用程式主進入點（四層架構程式碼）
-├── requirements.txt       # Python 依賴套件清單
-├── Dockerfile             # Docker 映像檔建置藍圖
-├── docker-compose.yml     # 多容器部署配置檔
-└── .env                   # 環境變數設定檔（需自行建立）
+在開始之前，請確保你的電腦已安裝以下軟體：
+1. **Git**: 用於版本控制與代碼下載。
+2. **Docker Desktop**: 用於執行容器化服務（請確保服務已啟動）。
+3. **VS Code**: 推薦使用的程式碼編輯器。
+
+---
+
+## 🚀 快速啟動步驟 (Step-by-Step)
+
+### 1. 下載專案與切換分支
+打開終端機，執行以下指令：
+```bash
+# 複製遠端專案
+git clone [https://github.com/shawnhuang125/FoodChatBot.git](https://github.com/shawnhuang125/FoodChatBot.git)
+
+# 進入專案資料夾
+cd FoodChatBot
+
+# 切換到 API 開發專屬分支
+git checkout feature/fuminwu-api
+```
+
+### 2. 配置環境變數 (.env)
+在專案根目錄下（與 `docker-compose.yml` 同一層）手動新增一個 `.env` 檔案，並填入以下內容：
+```env
+# ====== 網關監聽設定 ======
+GATEWAY_HOST=0.0.0.0
+GATEWAY_PORT=5000
+
+# ====== Redis 暫存資料庫連線 ======
+REDIS_URL=redis://redis:6379/0
+
+# ====== 後端 AI 微服務位置 (請依實際區網 IP 更改) ======
+TEXT_BOT_API_URL=[http://192.168.1.116:5000/text_bot_input](http://192.168.1.116:5000/text_bot_input)
+TEXT_BOT_API_URL_1=[http://192.168.1.116:5000/free_memory](http://192.168.1.116:5000/free_memory)
+PLACE_SEARCH_URL=[http://192.168.1.118:5004/place_search](http://192.168.1.118:5004/place_search)
+```
+
+### 3. 一鍵啟動服務
+```bash
+# 自動構建鏡像並於背景啟動
+docker compose up -d --build
+```
+
+### 4. 檢查運作狀態
+```bash
+# 持續追蹤 API 網關日誌
+docker logs -f streaming-gateway
+```
+💡 **成功指標**：看見 `🚀 API Gateway [單進程終極穩定版]` 且無紅色報錯即可（按 `Ctrl+C` 退出追蹤）。
+
+---
+
+## 🔌 API 服務端點 (Endpoints)
+
+| 類型 | 端點位置 | 說明 |
+| :--- | :--- | :--- |
+| **API 後台** | `http://localhost:5000/docs` | 視覺化 Swagger UI 測試介面 |
+| **健康檢查** | `GET http://localhost:5000/status` | 查看連線狀態與當前在線人數 |
+| **即時通訊** | `ws://localhost:5000` | 前端 Socket.IO 連線通道 |
+
+> **⚠️ 前端連線提示：**
+> 前端 App 連線時應設定 `transports: ['websocket']` 以強制使用 WebSocket 長連線，跳過 HTTP 輪詢，提升效能。
+
+---
+
+## 🛑 管理與維護指令
+
+```bash
+# 停止並移除目前的容器
+docker compose down
+
+# 重新打包並啟動 (若有修改程式碼必執行)
+docker compose up -d --build
+```
+
+---
+
+## 👨‍💻 開發者資訊
+
+* **專案負責人：** 吳富民 (Wu Fu-min)
+* **學號：** 4120E007
+* **系所：** 崑山科技大學 資工系 3A
+* **版本：** v3.0.0 (單進程穩定版)
+* **開發分支：** `feature/fuminwu-api`
