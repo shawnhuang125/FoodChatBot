@@ -20,9 +20,9 @@
 
 ## 🛠️ 開發環境需求
 
-在開始之前，請確保你的電腦已安裝以下軟體：
+在開始之前，請確保你的電腦或伺服器已安裝以下軟體：
 1. **Git**: 用於版本控制與代碼下載。
-2. **Docker Desktop**: 用於執行容器化服務（請確保服務已啟動）。
+2. **Docker & Docker Compose**: 用於執行容器化服務（請確保服務已啟動）。
 3. **VS Code**: 推薦使用的程式碼編輯器。
 
 ---
@@ -86,6 +86,45 @@ docker logs -f streaming-gateway
 
 ---
 
+## 📊 運行監控與除錯 (Monitoring & Debugging)
+
+服務部署上線後，可透過以下指令進行即時監控與效能排錯：
+
+### 1. 系統資源監控 (CPU/Memory)
+查看容器當前的 CPU 與記憶體消耗狀態：
+```bash
+# 即時顯示所有容器的資源佔用率
+docker stats
+
+# 僅顯示 gateway 容器的資源佔用
+docker stats streaming-gateway
+```
+
+### 2. API 網關日誌進階操作
+當遇到問題時，精準查看 Log 是除錯的關鍵：
+```bash
+# 查看最後 100 行日誌並持續追蹤
+docker logs --tail 100 -f streaming-gateway
+
+# 搜尋日誌中特定關鍵字 (例如 Error)
+docker logs streaming-gateway 2>&1 | grep "Error"
+```
+
+### 3. Redis 連線與狀態監控
+網關的狀態高度依賴 Redis，可以透過內建 CLI 進行排查：
+```bash
+# 查看 Redis 當前連線客戶端數量與狀態
+docker exec -it redis redis-cli info clients
+
+# 進入 Redis 監聽模式 (即時查看所有讀寫指令，注意：會消耗較多效能)
+docker exec -it redis redis-cli monitor
+
+# 清除所有 Redis 快取 (⚠️ 警告：會踢除所有用戶連線狀態)
+docker exec -it redis redis-cli flushall
+```
+
+---
+
 ## 🛑 管理與維護指令
 
 ```bash
@@ -94,6 +133,9 @@ docker compose down
 
 # 重新打包並啟動 (若有修改程式碼必執行)
 docker compose up -d --build
+
+# 清理系統中未使用的 Docker 映像檔與網路 (釋放硬碟空間)
+docker system prune -f
 ```
 
 ---
@@ -103,5 +145,5 @@ docker compose up -d --build
 * **專案負責人：** 吳富民 (Wu Fu-min)
 * **學號：** 4120E007
 * **系所：** 崑山科技大學 資工系 3A
-* **版本：** v3.0.0 (單進程穩定版)
+* **版本：** v2.0.0 (單進程穩定版)
 * **開發分支：** `feature/fuminwu-api`
