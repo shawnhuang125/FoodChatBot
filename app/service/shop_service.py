@@ -8,6 +8,7 @@ from app.models.models import Restaurant
 from app.service.photo_service import PhotoService  
 from app.utils.distance_utils import get_haversine_distance_sql, format_distance
 from app.logger import logger
+from app.config import Config
 
 class ShopService:
     # 設施排序與過濾定義
