@@ -20,7 +20,6 @@ class VectorRepository:
     async def _ensure_client(self):
         """確保 client 已掛載"""
         if self.client is None:
-            # 你的去空格邏輯很好，保留它
             target_host = str(Config.VECTOR_DB_HOST).strip()
             target_port = int(str(Config.VECTOR_DB_PORT).strip())
             
@@ -31,6 +30,7 @@ class VectorRepository:
                 port=target_port,
                 timeout=10
             )
+        return self.client
 
     # 向量搜尋功能(只針對rdbms過濾出來的店家ID列表去做向量運算)
     async def search_in_ids_pure_similarity(self, query_str: str, rdbms_ids: List[Any],must_have_tags: List[str] = None,base_amenities: List[str] = None ) -> List[VectorSearchResult]:
@@ -100,7 +100,7 @@ class VectorRepository:
         facility_tags: List[str] = None  # 變數名稱依要求使用 facility_tags
     ) -> List[VectorSearchResult]:
         
-        await self._ensure_client()
+        self.client = await self._ensure_client()
 
         try:
             clean_ids = [int(i) for i in rdbms_ids if i is not None]

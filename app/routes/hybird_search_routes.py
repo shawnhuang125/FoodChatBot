@@ -192,7 +192,7 @@ async def generate_query_and_search(
         
             # --- 存入 Redis 並取得第一頁 (統一門面) ---
             # 此方法內建了：生成 6 碼隨機 SSID -> 序列化並儲存至 Redis -> 切出第 1 頁結果
-            search_ssid, first_page_results, pagination_meta = await session_cache.create_session_and_get_first_page(
+            _, first_page_results, pagination_meta = await session_cache.create_session_and_get_first_page(
                 all_ranked_results,
                 page_size=Config.PAGE_SIZE
             )
@@ -201,23 +201,26 @@ async def generate_query_and_search(
             t_end = time.perf_counter()
             total_duration_route = t_end - t0
 
+            # 格式化為秒 (保留四位小數)
+            latency_sec = round(total_duration_route, 4)
+
+            # 記錄到 CSV (原本的邏輯)
             performance_metrics = {
-                "intent_content": vector_search_info.get("query_content"),  # 從 info 拿字串
-                "hit_count": total_count,                                    # SQL 命中筆數
+                "intent_content": vector_search_info.get("query_content"),
+                "hit_count": total_count,
                 "sql_service": round(sql_service_duration, 4),
                 "transition": round(transition_duration, 4),
                 "qdrant": round(qdrant_duration, 4),
                 "ranking": round(ranking_duration, 4),
-                "total": round(total_duration_route, 4)
+                "total": latency_sec
             }
-
             log_performance_to_csv(performance_metrics)
 
             # 回傳精簡後的 Response 物件
             response = {
                 "s_id": plan.get("s_id"),  # 原本的 s_id 照常回傳給 AI 識別
-                "search_ssid": search_ssid, # 新的 6 碼短 ID 給前端翻頁用
-                "status": quality_label,   # 狀態: success / partial_success / no_data
+                "quality_label": quality_label,   # 狀態: success / partial_success / no_data
+                "latency": latency_sec,     # 總查詢時長
                 "data": {
                         # 保底旗標
                         # 意義：是否觸發了「退而求其次」的邏輯

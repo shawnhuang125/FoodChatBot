@@ -128,7 +128,10 @@ class VectorService:
         keywords = plan.get("vector_keywords")
 
         # 初始化結果容器與狀態指標
-        info = {"status": "init", "message": "", "is_fallback": False}
+        info = {
+            "status": "processing",  # 用 processing 代替 init 更有動態感
+            "message": ""
+        }
         soft_preferences = []       # 用於動態門檻計算的參考
         semantic_parts = []         # 構建向量搜尋用的字串
         facility_tags = []          # 準備送往 Qdrant Filtering 的硬性標籤
@@ -185,8 +188,7 @@ class VectorService:
         # 將 query_str 塞進 info 回傳給 Route 層紀錄
         info = {
             "status": "init", 
-            "message": "", 
-            "is_fallback": False,
+            "message": "準備執行語意檢索", 
             "query_content": query_str  
         }
             
@@ -278,8 +280,7 @@ class VectorService:
             
             info.update({
                 "status": "vector_no_match", 
-                "message": "抱歉，附近目前沒有找到符合您描述的店家。",
-                "is_fallback": False
+                "message": "抱歉，附近目前沒有找到符合您描述的店家。"
             })
             # 關鍵修改：直接回傳空列表，不拿 SQL 的前三名來墊檔
             return [], info
@@ -291,7 +292,11 @@ class VectorService:
             vector_results, db_results, plan, CURRENT_THRESHOLD
         )
         r_end = time.perf_counter()
-        info["ranking_time"] = r_end - r_start
+        info.update({
+            "status": "completed",
+            "ranking_time": round(r_end - r_start, 4),
+            "message": f"搜尋成功：已從 {len(db_results)} 筆候選店家中篩選出 {len(final_results)} 筆最佳結果。"
+        })
         
         return final_results, info
     

@@ -137,9 +137,9 @@ if __name__ == "__main__":
     device = check_env()
 
     # 配置區域
-    MODEL_PATH = "./m3_food_finetuned"  # 指向你微調後的模型路徑
-    DATA_JSON = "restaurants_20260326_all_fixed.json"
-    COLLECTION_NAME = "restaurants"
+    MODEL_PATH = "./m3_food_finetuned"  
+    DATA_JSON = "restaurants_20260511_final_merged.json"
+    COLLECTION_NAME = "restaurants_20260511"
     QDRANT_HOST = "192.168.1.112"
 
     # 1. 載入模型
