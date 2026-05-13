@@ -25,8 +25,6 @@ class SQLSetting:
     # =================================================================
     # 地理位置與距離配置 (Geospatial)
     # =================================================================
-    # 預設座標配置 (崑山科技大學)
-    DEFAULT_LOCATION = {"lat": 22.9972300, "lng": 120.2522700}
     
     # 座標來源枚舉
     LOC_SOURCE_USER = "user"
@@ -129,9 +127,7 @@ class SQLSetting:
     # =================================================================
     # _recursive_parse 專用配置 (SQL Logic Generation)
     # =================================================================
-    # --- 語法模板 ---
-    FULLTEXT_MODE = "IN NATURAL LANGUAGE MODE"
-    LIKE_TEMPLATE = "{}%" 
+
     
     # --- 欄位過濾與攔截 ---
     # 強制攔截：僅限向量處理，絕對禁止生成 SQL WHERE 子句
@@ -141,11 +137,9 @@ class SQLSetting:
         "行動支付", "現金支付", "信用卡"
     }
 
-    # 特殊處理：使用全文索引 MATCH AGAINST 的欄位
-    FULLTEXT_FIELDS = ["address", "restaurant_name"]
     
     # 特殊處理：強制轉換為 LIKE 模糊比對的欄位
-    FORCE_LIKE_FIELDS = ["restaurant_type", "merchant_category"]
+    FORCE_LIKE_FIELDS = ["restaurant_type", "merchant_category", "restaurant_name", "address"]
 
     # 標籤映射：用於 TINYINT (1/0) 的精確匹配判斷
     FACILITY_KEYS = {
@@ -153,6 +147,7 @@ class SQLSetting:
         "行動支付", "現金支付", "信用卡" 
     }
 
+    LIKE_TEMPLATE = "%{}%"
 
 class HybridSQLBuilder:
     def __init__(self):
@@ -194,21 +189,14 @@ class HybridSQLBuilder:
             })
             logger.info(f"[SQL Builder][SID: {s_id}] 使用使用者提供座標: {user_loc}")
             
-        # 狀況 B: 沒提供座標但功能需要距離，注入預設座標
-        elif wants_distance:
-            plan.update({
-                "location_source": SQLSetting.LOC_SOURCE_DEFAULT,
-                "distance_needed": True,
-                "user_location": SQLSetting.DEFAULT_LOCATION # 引用外部配置
-            })
-            logger.warning(f"[SQL Builder][SID: {s_id}] 功能需要距離但未偵測到座標，注入預設座標: {SQLSetting.DEFAULT_LOCATION}")
-            
-        # 狀況 C: 沒座標也沒距離需求
+        # 狀況 B: 沒接收到使用者經緯度
         else:
             plan.update({
                 "location_source": SQLSetting.LOC_SOURCE_NONE,
                 "distance_needed": False
             })
+            # 僅記錄日誌，不做任何座標注入處理
+            logger.info(f"[SQL Builder][SID: {s_id}] 未偵測到使用者座標，跳過位置相關處理")
 
 
 
@@ -317,51 +305,55 @@ class HybridSQLBuilder:
     
 
     def _scan_for_vector_intent(self, node, plan, s_id):
-        """
-        遞迴掃描邏輯樹，提取向量關鍵字
-        已解耦：判斷標準由 SQLSetting 提供
-        """
-        if not node: 
+        if not node or not isinstance(node, dict):
             return
-        
-        # 處理帶有子條件的節點 (AND/OR)
-        if "conditions" in node:
+
+        # 1. 處理容器型節點 (帶有 conditions 的 AND/OR)
+        if "conditions" in node and isinstance(node["conditions"], list):
             for child in node["conditions"]:
                 self._scan_for_vector_intent(child, plan, s_id)
-        
-        # 處理葉節點
+            return # 處理完子節點就結束
+
+        # 2. 處理葉子節點 (條件節點)
+        key = None
+        val = None
+
+        # 樣式 A: {"field": "address", "value": "..."}
+        if "field" in node:
+            key = node.get("field")
+            val = node.get("value")
+        # 樣式 B: {"address": {"value": "..."}}
         else:
-            # 取得節點 Key
-            key = list(node.keys())[0]
-            val = node[key].get("value")
-            
-            if val is None: 
-                return
+            keys = list(node.keys())
+            if keys:
+                potential_key = keys[0]
+                # 確保內容是字典才能用 .get
+                if isinstance(node[potential_key], dict):
+                    key = potential_key
+                    val = node[potential_key].get("value")
 
-            # 1. 處理數值轉換 (解耦數值處理邏輯)
-            # 這裡可以使用 list comprehension 處理
-            if isinstance(val, list):
-                processed_val = " ".join([str(i) for i in val])
-            else:
-                processed_val = str(val)
-            
-            # 2. 判斷是否為向量/混合搜尋目標 (引用外部配置)
-            if key in SQLSetting.ALL_VECTOR_TARGETS:
-                
-                # 初始化該 key 的 list (防禦性編程)
-                if key not in plan["vector_keywords"]:
-                    plan["vector_keywords"][key] = []
-                
-                # 兼容性處理：確保 key 必須是 list 結構
-                if not isinstance(plan["vector_keywords"][key], list):
-                    plan["vector_keywords"][key] = [str(plan["vector_keywords"][key])]
-                
-                # 3. 注入關鍵字並標記向量需求
-                plan["vector_keywords"][key].append(processed_val)
-                plan["vector_needed"] = True
-                
-                logger.info(f"[SQL Builder][SID: {s_id}] 捕捉語意特徵: {key} -> {processed_val}")
+        # 如果沒抓到 Key 或 Value，代表不是有效的條件，跳過
+        if key is None or val is None:
+            return
 
+        # 3. 數值轉換與向量標記邏輯 (保持不變)
+        if isinstance(val, list):
+            processed_val = " ".join([str(i) for i in val])
+        else:
+            processed_val = str(val)
+
+        if key in SQLSetting.ALL_VECTOR_TARGETS:
+            if key not in plan["vector_keywords"]:
+                plan["vector_keywords"][key] = []
+            
+            # 確保是 list 才能 append
+            if not isinstance(plan["vector_keywords"][key], list):
+                plan["vector_keywords"][key] = [str(plan["vector_keywords"][key])]
+                
+            plan["vector_keywords"][key].append(processed_val)
+            plan["vector_needed"] = True
+            logger.info(f"[SQL Builder][SID: {s_id}] 捕捉語意特徵: {key} -> {processed_val}")
+            
 
     # 負責將邏輯樹轉成sql字串
     # 會接收關鍵參數 vector_result_ids:這是向量資料庫搜尋完後回傳的Place id列表
@@ -386,6 +378,9 @@ class HybridSQLBuilder:
 
         # 3. 遞迴生成 WHERE 子句
         where_sql = self._recursive_parse(logic_tree, s_id)
+
+        if logic_tree and not where_sql:
+            logger.warning(f"[SQL Builder][SID: {s_id}] 警告：偵測到邏輯樹但解析結果為空，可能存在格式不符或欄位未定義")
         
         # 暫存快取資訊
         plan.update({
@@ -438,90 +433,85 @@ class HybridSQLBuilder:
 
     def _recursive_parse(self, node, s_id):
         """
-        將巢狀JSON邏輯樹轉平為SQL WHERE字串
-        欄位名單與 SQL 語法模板均由 SQLSetting 提供
+        將巢狀 JSON 邏輯樹轉平為 SQL WHERE 字串
+        完全移除 Full-text Search，強制使用精準比對與標準 LIKE
         """
-        if not node: 
-            logger.debug("[SQL Builder Debug] 節點為空，跳過解析")
+        if not node or not isinstance(node, dict): 
             return None
         
-        key = list(node.keys())[0]
-
-        # 1. 攔截向量欄位：由 SQLSetting.VECTOR_ONLY_FIELDS 統一管理
-        if key in SQLSetting.VECTOR_ONLY_FIELDS:
-            logger.info(f"[SQL Builder][SID: {s_id}] 攔截向量欄位 '{key}'，不生成 SQL")
-            return None
-
-        # 2. 處理邏輯運算子節點 (AND/OR)
+        # 1. 處理邏輯運算子節點 (AND/OR)
         if "op" in node and "conditions" in node:
             operator = node["op"].upper()
-            logger.debug(f"[SQL Builder Debug] 解析群組節點: {operator}, 子條件數: {len(node['conditions'])}")
             child_sqls = []
-            
             for child in node["conditions"]:
                 child_sql = self._recursive_parse(child, s_id)
                 if child_sql:
                     child_sqls.append(child_sql)
             
-            if not child_sqls: 
-                return None
-            if len(child_sqls) == 1: 
-                return child_sqls[0]
-            
-            # 使用 SQLSetting 規範的運算子串接
+            if not child_sqls: return None
+            if len(child_sqls) == 1: return child_sqls[0]
             return f"({(f' {operator} ').join(child_sqls)})"
 
-        # 3. 處理單一條件 (葉節點)
-        node_data = node[key]
-        val = node_data.get("value")
-        cmp = node_data.get("cmp", "=").upper()
+        # 2. 提取欄位資訊 (相容樣式 A 與樣式 B)
+        key = node.get("field")
+        val = node.get("value")
+        cmp = node.get("cmp", "=").upper()
 
-        logger.info(f"[SQL Builder][SID: {s_id}] ===> [Recursive Parse] 處理欄位: '{key}' | 算符: {cmp}")
+        if key is None:
+            for k, v in node.items():
+                if isinstance(v, dict) and "value" in v:
+                    key = k
+                    val = v.get("value")
+                    cmp = v.get("cmp", "=").upper()
+                    break
 
-        # 數據歸一化處理
-        if isinstance(val, list) and len(val) == 1:
-            val = val[0]
-        
-        logger.info(f"===> [Recursive Parse] 處理欄位: '{key}' | 算符: {cmp} | 原始值: {val}")
-
-        # 狀況 A: 優先檢查向量語意欄位
-        if key in SQLSetting.VECTOR_FIELDS:
-            logger.debug(f"[SQL Builder][SID: {s_id}] '{key}' 為向量欄位，跳過 SQL 生成")
+        if not key or val is None:
             return None
 
-        # 狀況 B: 處理設施標籤 (TINYINT 1/0 邏輯)
+        # 3. 攔截向量欄位
+        if key in SQLSetting.VECTOR_ONLY_FIELDS or key in SQLSetting.VECTOR_FIELDS:
+            logger.info(f"[SQL Builder][SID: {s_id}] 攔截向量欄位 '{key}'")
+            return None
+
+        # 數據歸一化 (單元素列表轉數值)
+        if isinstance(val, list) and len(val) == 1:
+            val = val[0]
+
+        logger.info(f"[SQL Builder][SID: {s_id}] ===> [Recursive Parse] 處理欄位: '{key}' | 算符: {cmp} | 原始值: {val}")
+
+        # 4. 生成 SQL 
+        # 狀況 A: 設施標籤 (TINYINT 1/0)
         if key in SQLSetting.FACILITY_KEYS:
-            if val is not True:
-                return None
+            if val is not True: return None
             db_col = SQLSetting.SQL_WHERE_MAPPING.get(key)
             if not db_col: return None
-            
             p_name = f"p{self.param_counter}"
-            self.query_params[p_name] = 1 # 資料庫存儲為 1
+            self.query_params[p_name] = 1
             self.param_counter += 1
             return f"{db_col} = %({p_name})s"
         
-        # 狀況 C: 處理一般 SQL 映射欄位
+        # 狀況 B: 一般映射欄位
         if key in SQLSetting.SQL_WHERE_MAPPING:
             db_col = SQLSetting.SQL_WHERE_MAPPING[key]
             p_name = f"p{self.param_counter}"
 
-            # 1. Full-Text 搜尋：使用 SQLSetting.FULLTEXT_MODE
-            if key in SQLSetting.FULLTEXT_FIELDS:
-                self.query_params[p_name] = val
-                self.param_counter += 1
-                return f"MATCH({db_col}) AGAINST(%({p_name})s {SQLSetting.FULLTEXT_MODE})"
-
-            # 2. 強制模糊比對：使用 SQLSetting.LIKE_TEMPLATE
-            elif key in SQLSetting.FORCE_LIKE_FIELDS or cmp == "LIKE":
-                param_value = SQLSetting.LIKE_TEMPLATE.format(val)
+            # --- 1. 【優先攔截】強制模糊比對欄位 ---
+            # 只要在 FORCE_LIKE_FIELDS 裡，管你 cmp 傳什麼，通通轉 LIKE
+            if key in SQLSetting.FORCE_LIKE_FIELDS or cmp == "LIKE":
+                # LIKE 只能處理單一值，如果是 list 則取第一個
+                target_val = val[0] if isinstance(val, list) else val
+                
+                # 補上模板 (例如 %{}%)
+                param_value = target_val if "%" in str(target_val) else SQLSetting.LIKE_TEMPLATE.format(target_val)
                 self.query_params[p_name] = param_value
                 self.param_counter += 1
                 return f"{db_col} LIKE %({p_name})s"
 
-            # 3. 集合查詢 (IN / NOT IN)
+            # --- 2. 處理集合查詢 (IN / NOT IN) ---
             elif cmp in ["IN", "NOT IN"]:
                 val_list = val if isinstance(val, list) else [val]
+                if not val_list: 
+                    return "1=0" if cmp == "IN" else "1=1"
                 p_names = []
                 for item in val_list:
                     current_p = f"p{self.param_counter}"
@@ -529,18 +519,15 @@ class HybridSQLBuilder:
                     p_names.append(f"%({current_p})s")
                     self.param_counter += 1
                 return f"{db_col} {cmp} ({', '.join(p_names)})"
-            
-            # 4. 標準精確或範圍比對
+
+            # --- 3. 標準精準比對 ---
             else:
                 self.query_params[p_name] = val
                 self.param_counter += 1
                 return f"{db_col} {cmp} %({p_name})s"
         
-        # 兜底警告
-        logger.warning(f"!!! [SQL Builder Warning] 欄位 '{key}' 找不到 Mapping 配置，該條件被丟棄")
+        logger.warning(f"!!! [SQL Builder Warning] 欄位 '{key}' 找不到 Mapping 配置")
         return None
-    
-
 
     # 移除參數 is_fallback：
     # 此參數從未在函式體內被使用，導致 Fallback 輪的 Count SQL 與主查詢條件不一致（Count 仍用嚴格條件）

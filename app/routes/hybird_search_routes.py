@@ -219,7 +219,7 @@ async def generate_query_and_search(
             # 回傳精簡後的 Response 物件
             response = {
                 "s_id": plan.get("s_id"),  # 原本的 s_id 照常回傳給 AI 識別
-                "quality_label": quality_label,   # 狀態: success / partial_success / no_data
+                "quality_level": quality_label,   # 狀態: success / partial_success / no_data
                 "latency": latency_sec,     # 總查詢時長
                 "data": {
                         # 保底旗標

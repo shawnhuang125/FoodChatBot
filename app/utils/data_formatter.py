@@ -38,7 +38,7 @@ def enrich_results_with_photos(results, plan):
     base_url = Config.IMAGES_URL
 
     for row in results:
-        store_id = str(row['id']).zfill(3)
+        store_id = str(row['id']).zfill(4)
         row['photos'] = [] 
         
         # 根據規則：店家ID + 01~10.jpg
