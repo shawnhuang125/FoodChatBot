@@ -1,0 +1,37 @@
+services:
+  ai-chatbot:
+    # 1. 使用當前目錄下的 Dockerfile 進行構建
+    build: .
+    
+    # 2. 容器名稱，方便識別
+    container_name: food_chat_bot
+    
+    # 3. 自動載入環境變數 (請確認 .env 內的 MODELS_BASE_DIR=/app/models/...)
+    env_file:
+      - .env
+      
+    # 4. Port 對應：本機 5000 對應容器 5000
+    ports:
+      - "5000:5000"
+      
+    # 5. 目錄掛載 (Volumes)：傳送門設定
+    volumes:
+      - "C:/Users/shawn/.cache/huggingface:/root/.cache/huggingface"
+      # 將 Windows 模型目錄掛載到容器內部
+      - ./models:/app/models
+      # 將微調模型目錄掛載到容器內部
+      - ./finetune_model:/app/finetune_model
+      # 掛載 Log 檔案，方便即時監看
+      - ./app.log:/app/app.log
+      
+    # 6. GPU 資源配置：分配雙 4060 Ti 權限
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all  # 這裡會自動抓到你的 0 號與 1 號顯卡
+              capabilities: [gpu]
+              
+    # 7. 重啟策略
+    restart: always
