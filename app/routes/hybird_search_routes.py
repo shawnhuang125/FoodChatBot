@@ -85,6 +85,7 @@ async def generate_query_and_search(
             all_ranked_results = []
             first_page_results = []
             quality_label = "no_data" # 預設狀態
+            user_location = ai_to_api_data.get("user_location")
 
             # 針對輸入的json進行分析意圖
             plan = builder.analyze_intent(ai_to_api_data)
@@ -96,7 +97,7 @@ async def generate_query_and_search(
 
             t_sql_start = time.perf_counter()
 
-            final_sql, query_params = builder.build_sql(plan)
+            final_sql, query_params = builder.build_sql(plan, user_location=user_location)
             logger.info(f"[Search][SID: {s_id}] 執行 SQL 查詢")
 
             db_results, _ = await rdbms_repo.execute_dynamic_query(final_sql, query_params, s_id)

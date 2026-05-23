@@ -138,9 +138,9 @@ if __name__ == "__main__":
 
     # 配置區域
     MODEL_PATH = "./m3_food_finetuned"  
-    DATA_JSON = "restaurants_20260511_final_merged.json"
-    COLLECTION_NAME = "restaurants_20260511"
-    QDRANT_HOST = "192.168.1.112"
+    DATA_JSON = "restaurants_20260520_20260523.json"
+    COLLECTION_NAME = "restaurants_20260520"
+    QDRANT_HOST = "192.168.0.201"
 
     # 1. 載入模型
     if not os.path.exists(MODEL_PATH):

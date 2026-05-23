@@ -2,6 +2,7 @@
 import json
 import time
 from app.utils.distance_utils import get_haversine_distance_sql # 匯入距離計算的SQL生成器
+# from app.utils.distance_utils import _build_haversine_where_clause
 from app.utils.performance_tracker import log_function_timing    # 函式層級耗時記錄器
 from app.utils.app_logger import logger
 import copy
@@ -18,7 +19,7 @@ class SQLSetting:
     
     # CANDIDATE_POOL_LIMIT: SQL 撈取店家的總上限
     # SQL 階段的初步排序邏輯
-    CANDIDATE_POOL_LIMIT = 300
+    CANDIDATE_POOL_LIMIT = 500
     CANDIDATE_POOL_ORDER_BY = "p.rating DESC, p.user_ratings_total DESC"
 
 
@@ -49,7 +50,8 @@ class SQLSetting:
         "website": "p.website",
         "opening_hours": "p.opening_hours",
         "user_ratings_total": "p.user_ratings_total",
-        "cuisine_type": "pa.cuisine_type",
+        "cuisine": "pa.cuisine_type",
+        "food_type": "pa.food_type",
         "merchant_category": "pa.merchant_category",
         "facility_tags": "pa.facility_tags",
         #"lat": "p.lat",
@@ -67,14 +69,9 @@ class SQLSetting:
         "time": "p.opening_hours",
         "address": "p.address", 
         "rating": "p.rating",
-        "cuisine_type": "pa.cuisine_type",
+        "cuisine": "pa.cuisine_type",
         "merchant_category": "pa.merchant_category",
-        "restaurant_type": "pa.merchant_category",
-        "內用": "pa.has_dine_in",
-        "冷氣": "pa.has_air_conditioner",
-        "外帶": "pa.has_takeout",
-        "吃到飽": "pa.is_all_you_can_eat",
-        "特約停車場": "pa.has_private_parking"
+        "restaurant_type": "pa.merchant_category"
     }
 
     # =================================================================
@@ -99,13 +96,13 @@ class SQLSetting:
             "s_id": s_id,
             "location_source": "none",
             "select_fields": [],
-            "sort_clauses": [],
             "sort_conditions": json_input.get("sort_conditions", []),
             "query_params": {},
             "page": json_input.get("page", 1),
             "page_size": json_input.get("page_size", 3),
             "vector_needed": False,
             "vector_keywords": {},
+            "matrix_runtime_config": {"op": "AND", "feature_weights": {}}, # 🟢 補上初始宣告
             "photos_needed": False,
             "distance_needed": False,
             "user_location": None,
@@ -116,10 +113,10 @@ class SQLSetting:
     # _scan_for_vector_intent 專用配置 (Vector Identification)
     # =================================================================
     # 哪些欄位被視為純語意搜尋欄位
-    VECTOR_FIELDS = {"flavor", "review_summary", "cuisine_type"}
+    VECTOR_FIELDS = {"flavor", "review_summary", "cuisine"}
     
     # 哪些欄位屬於混合模式（同時存在於 SQL 與 Vector）
-    HYBRID_FIELDS = {"food_type", "cuisine_type", "flavor", "facility_tags", "service_tags"}
+    HYBRID_FIELDS = {"food_type", "cuisine", "flavor", "facility_tags", "service_tags"}
     
     # 聯集：掃描器掃描目標
     ALL_VECTOR_TARGETS = VECTOR_FIELDS | HYBRID_FIELDS
@@ -132,20 +129,13 @@ class SQLSetting:
     # --- 欄位過濾與攔截 ---
     # 強制攔截：僅限向量處理，絕對禁止生成 SQL WHERE 子句
     VECTOR_ONLY_FIELDS = {
-        "service_tags", "food_type", "cuisine_type",
-        "內用", "冷氣", "外帶", "吃到飽", "特約停車場", 
-        "行動支付", "現金支付", "信用卡"
+        "service_tags", "food_type", "cuisine"
     }
 
     
     # 特殊處理：強制轉換為 LIKE 模糊比對的欄位
     FORCE_LIKE_FIELDS = ["restaurant_type", "merchant_category", "restaurant_name", "address"]
 
-    # 標籤映射：用於 TINYINT (1/0) 的精確匹配判斷
-    FACILITY_KEYS = {
-        "內用", "冷氣", "外帶", "吃到飽", "特約停車場", 
-        "行動支付", "現金支付", "信用卡" 
-    }
 
     LIKE_TEMPLATE = "%{}%"
 
@@ -154,6 +144,7 @@ class HybridSQLBuilder:
         # 實例化時不需要再重複定義映射表，直接引用 SQLSetting
         self.param_counter = 0
         self.query_params = {}
+        self.user_location = None
     # 只負責看懂 JSON，告訴你需不需要跑向量搜尋
     # 解析意圖
     # 回傳一個字典,包含SQL所需的結構以及向量搜尋的需求
@@ -174,10 +165,24 @@ class HybridSQLBuilder:
         # 如果有[info_needed] = 包含distance需求或sort_condition有距離排序
         # 但沒有usder_location就先用預設的經緯度
         user_loc = json_input.get("user_location")
-        wants_distance = (
+        has_valid_loc = (
+            user_loc 
+            and isinstance(user_loc, dict) 
+            and "lat" in user_loc 
+            and "lng" in user_loc
+        )
+
+        # 檢查本次請求是否包含任何距離需求（欄位或排序）
+        requires_distance = (
             "distance" in json_input.get("info_needed", []) or 
             any(s.get("field") == "distance" for s in json_input.get("sort_conditions", []))
         )
+
+        # 如果需要距離排序需求且沒有傳入經緯度或是傳入的經緯度是0.0000000
+        if requires_distance and not has_valid_loc:
+            error_msg = "請求衝突：本次查詢要求了距離相關資訊（info_needed 或 sort_conditions），但未提供有效的 user_location 經緯度座標。"
+            logger.error(f"[SQL Builder][SID: {s_id}][終止查詢] {error_msg}")
+            raise ValueError(error_msg)
 
         # 3. 座標判斷邏輯
         # 狀況 A: 使用者提供了正確座標
@@ -258,102 +263,77 @@ class HybridSQLBuilder:
             raise ValueError(error_msg)
 
 
+        root_tree = json_input.get("logic_tree", {})
+        plan["matrix_runtime_config"]["op"] = root_tree.get("op", "AND").upper()
 
-        # 處理Sort排序規則,包括distance排序問題
-        for s in json_input.get("sort_conditions", []):
-            field = s['field']
-            method = s['method']
-            if field == "distance":
-                if plan["distance_needed"]:
-                    plan["sort_clauses"].append(f"distance {method}") # 不要加p.
-                    logger.debug(f"[SQL Builder] 加入距離排序: {method}")
-            else:
-                # 一般欄位
-                plan["sort_clauses"].append(f"p.{field} {method}")
-            # 直接組裝排序的子句,通常傳入的json裡面的sort_conditions會是像這樣:
-            # ["sort_conditions": [
-            #{
-                #"field": "distance",
-                #"method": "ASC"
-                #},
-            #]
-            # 所以使用append直接組合起來變成""p.rating DESC"
-            # 加入倒PLAN的sort_clauses的list裡面就會是order by 子句
-            # 如果是 'distance' 排序，通常需要在外部算好距離後再處理，Distance模組還沒有處理!
-            # 若要'distance' 排序會sql執行錯誤,原因是資料庫沒有這個欄位
-        # 預先掃描邏輯樹，分離 SQL 條件與向量條件
-        # 把原始 logic_tree 存下來，在 build_sql 時才遞迴生成
-        # 這裡先掃描是否有向量需求
-        self._scan_for_vector_intent(json_input.get("logic_tree", {}), plan, s_id)
-        # 把原始邏輯樹存入 plan，留給第二階段用
+        # 接下來維持原樣呼叫掃描器
+        self._scan_for_vector_intent(root_tree, plan, s_id)
         plan["raw_logic_tree"] = json_input.get("logic_tree", {})
-
-        # 如果有向量需求,那排序就要放到向量斯尋完畢之後處理
-
-        if plan["vector_needed"]:
-            plan["deferred_sorting"] = True
-            plan["order_by_distance"] = any(s.get("field") == "distance" for s in json_input.get("sort_conditions", []))
-            logger.info(f"[SQL Builder][SID: {s_id}] 檢測到向量需求，排序將延遲至 VectorService")
-        else:
-            plan["deferred_sorting"] = False
-            plan["order_by_distance"] = False
-
-        # 記錄 analyze_intent 函式總耗時至 CSV
+            
+        logger.info(f"[SQL Builder][SID: {s_id}] 意圖解析完畢。全域算符: {plan['matrix_runtime_config']['op']}")
         log_function_timing("analyze_intent", s_id, time.perf_counter() - t0_analyze)
 
         return plan
     
-
+    
     def _scan_for_vector_intent(self, node, plan, s_id):
         if not node or not isinstance(node, dict):
             return
 
-        # 1. 處理容器型節點 (帶有 conditions 的 AND/OR)
+        # 1. 處理容器型節點（相容外部的 AND 與內部的 OR 嵌套）
         if "conditions" in node and isinstance(node["conditions"], list):
+            # 建立運行配置大腦字典，如果 plan 裡還沒有，就初始化它
+            if "matrix_runtime_config" not in plan:
+                plan["matrix_runtime_config"] = {
+                    "op": node.get("op", "AND").upper(), # 擷取最外層作為主算符 (AND)
+                    "feature_weights": {}
+                }
+            
+            # 遞迴向下鑽取
             for child in node["conditions"]:
                 self._scan_for_vector_intent(child, plan, s_id)
-            return # 處理完子節點就結束
-
-        # 2. 處理葉子節點 (條件節點)
-        key = None
-        val = None
-
-        # 樣式 A: {"field": "address", "value": "..."}
-        if "field" in node:
-            key = node.get("field")
-            val = node.get("value")
-        # 樣式 B: {"address": {"value": "..."}}
-        else:
-            keys = list(node.keys())
-            if keys:
-                potential_key = keys[0]
-                # 確保內容是字典才能用 .get
-                if isinstance(node[potential_key], dict):
-                    key = potential_key
-                    val = node[potential_key].get("value")
-
-        # 如果沒抓到 Key 或 Value，代表不是有效的條件，跳過
-        if key is None or val is None:
             return
 
-        # 3. 數值轉換與向量標記邏輯 (保持不變)
-        if isinstance(val, list):
-            processed_val = " ".join([str(i) for i in val])
-        else:
-            processed_val = str(val)
+        # 2. 處理單一條件節點（相容新版 {"field": "...", "value": "...", "weight": 0.9}）
+        key = node.get("field")
+        val = node.get("value")
+        weight = node.get("weight", 1.0) # 讀取生成模型給的動態權重
 
+        # 樣式 B 邊界保護（相容舊格式）
+        if key is None:
+            for k, v in node.items():
+                if isinstance(v, dict) and "value" in v:
+                    key = k
+                    val = v.get("value")
+                    weight = v.get("weight", 1.0)
+                    break
+
+        if not key or val is None:
+            return
+
+        # 資料歸一化為字串
+        processed_vals = val if isinstance(val, list) else [val]
+
+        # 3. 如果命中向量特徵目標（去中心化打平收集）
         if key in SQLSetting.ALL_VECTOR_TARGETS:
             if key not in plan["vector_keywords"]:
                 plan["vector_keywords"][key] = []
             
-            # 確保是 list 才能 append
-            if not isinstance(plan["vector_keywords"][key], list):
-                plan["vector_keywords"][key] = [str(plan["vector_keywords"][key])]
+            for item in processed_vals:
+                item_str = str(item)
+                if item_str not in plan["vector_keywords"][key]:
+                    plan["vector_keywords"][key].append(item_str)
                 
-            plan["vector_keywords"][key].append(processed_val)
+                # 關鍵聯動：動態將「欄位_特徵值」與「權重」精準對齊，塞進執行配置中
+                feat_id = f"{key}_{item_str}"
+                if "matrix_runtime_config" not in plan:
+                    plan["matrix_runtime_config"] = {"op": "AND", "feature_weights": {}}
+                
+                plan["matrix_runtime_config"]["feature_weights"][feat_id] = float(weight)
+                
             plan["vector_needed"] = True
-            logger.info(f"[SQL Builder][SID: {s_id}] 捕捉語意特徵: {key} -> {processed_val}")
-            
+            logger.info(f"[SQL Builder][SID: {s_id}] 捕捉動態特徵權重: {key} -> {processed_vals} (w: {weight})")
+    
 
     # 負責將邏輯樹轉成sql字串
     # 會接收關鍵參數 vector_result_ids:這是向量資料庫搜尋完後回傳的Place id列表
@@ -361,7 +341,7 @@ class HybridSQLBuilder:
     # 移除參數 vector_result_ids：
     # 此參數從未在函式體內被使用，原設計意圖是將向量搜尋結果的 ID 傳入以限制 SQL 範圍，
     # 但實際上 ID 過濾邏輯已移至 VectorService，此處不再需要
-    def build_sql(self, plan, is_fallback=False):
+    def build_sql(self, plan, user_location=None):
         """
         建構全量候選池 SQL：已移除 SQL 分頁邏輯並實施 100% 變數解耦
         """
@@ -377,7 +357,7 @@ class HybridSQLBuilder:
         self.query_params = {} 
 
         # 3. 遞迴生成 WHERE 子句
-        where_sql = self._recursive_parse(logic_tree, s_id)
+        where_sql = self._recursive_parse(logic_tree, s_id, user_location=user_location)
 
         if logic_tree and not where_sql:
             logger.warning(f"[SQL Builder][SID: {s_id}] 警告：偵測到邏輯樹但解析結果為空，可能存在格式不符或欄位未定義")
@@ -431,20 +411,20 @@ class HybridSQLBuilder:
         return final_sql, self.query_params
             
 
-    def _recursive_parse(self, node, s_id):
+    def _recursive_parse(self, node, s_id, user_location=None):
         """
-        將巢狀 JSON 邏輯樹轉平為 SQL WHERE 字串
-        完全移除 Full-text Search，強制使用精準比對與標準 LIKE
+        將巢狀 JSON 邏輯樹（包含單節點與多層容器）轉平為 SQL WHERE 字串
+        支援：address 欄位的 IN/NOT IN 展開、near 降維警告、以及單節點邊界保護
         """
         if not node or not isinstance(node, dict): 
             return None
         
-        # 1. 處理邏輯運算子節點 (AND/OR)
+        # 處理邏輯運算子容器節點 (AND/OR 嵌套)
         if "op" in node and "conditions" in node:
             operator = node["op"].upper()
             child_sqls = []
             for child in node["conditions"]:
-                child_sql = self._recursive_parse(child, s_id)
+                child_sql = self._recursive_parse(child, s_id, user_location=user_location)
                 if child_sql:
                     child_sqls.append(child_sql)
             
@@ -452,79 +432,124 @@ class HybridSQLBuilder:
             if len(child_sqls) == 1: return child_sqls[0]
             return f"({(f' {operator} ').join(child_sqls)})"
 
-        # 2. 提取欄位資訊 (相容樣式 A 與樣式 B)
+        # =================================================================
+        # 2. 提取單一條件節點資訊 (相容樣式 A 與樣式 B 舊格式)
+        # =================================================================
         key = node.get("field")
         val = node.get("value")
-        cmp = node.get("cmp", "=").upper()
+        cmp = str(node.get("cmp", "=")).strip().lower() # 🟢 歸一化轉小寫，方便比對 'near'、'between'、'open_at'
 
         if key is None:
             for k, v in node.items():
                 if isinstance(v, dict) and "value" in v:
                     key = k
                     val = v.get("value")
-                    cmp = v.get("cmp", "=").upper()
+                    cmp = str(v.get("cmp", "=")).strip().lower()
                     break
 
         if not key or val is None:
             return None
 
-        # 3. 攔截向量欄位
-        if key in SQLSetting.VECTOR_ONLY_FIELDS or key in SQLSetting.VECTOR_FIELDS:
-            logger.info(f"[SQL Builder][SID: {s_id}] 攔截向量欄位 '{key}'")
+        # =================================================================
+        # 3. 攔截純向量欄位 (如 service_tags, food_type 等已註冊於 VECTOR_ONLY_FIELDS 的欄位)
+        # =================================================================
+        if key in SQLSetting.VECTOR_ONLY_FIELDS:
+            logger.info(f"[SQL Builder][SID: {s_id}] 強制攔截純向量欄位 '{key}'，不生成 SQL WHERE")
             return None
 
-        # 數據歸一化 (單元素列表轉數值)
+        # 數據歸一化 (單元素列表轉單一數值)
         if isinstance(val, list) and len(val) == 1:
             val = val[0]
 
-        logger.info(f"[SQL Builder][SID: {s_id}] ===> [Recursive Parse] 處理欄位: '{key}' | 算符: {cmp} | 原始值: {val}")
+        logger.info(f"[SQL Builder][SID: {s_id}] ===> [Recursive Parse] 處理欄位: '{key}' | 原始算符: {cmp} | 原始值: {val}")
 
-        # 4. 生成 SQL 
-        # 狀況 A: 設施標籤 (TINYINT 1/0)
-        if key in SQLSetting.FACILITY_KEYS:
-            if val is not True: return None
-            db_col = SQLSetting.SQL_WHERE_MAPPING.get(key)
-            if not db_col: return None
-            p_name = f"p{self.param_counter}"
-            self.query_params[p_name] = 1
-            self.param_counter += 1
-            return f"{db_col} = %({p_name})s"
         
-        # 狀況 B: 一般映射欄位
+        # 核心欄位映射處理
         if key in SQLSetting.SQL_WHERE_MAPPING:
             db_col = SQLSetting.SQL_WHERE_MAPPING[key]
-            p_name = f"p{self.param_counter}"
-
-            # --- 1. 【優先攔截】強制模糊比對欄位 ---
-            # 只要在 FORCE_LIKE_FIELDS 裡，管你 cmp 傳什麼，通通轉 LIKE
-            if key in SQLSetting.FORCE_LIKE_FIELDS or cmp == "LIKE":
-                # LIKE 只能處理單一值，如果是 list 則取第一個
-                target_val = val[0] if isinstance(val, list) else val
+            
+            
+            # 當欄位是 address 時，不論 cmp 是什麼，通通收攏在這一層處理
+            if key == "address":
+                val_list = val if isinstance(val, list) else [val]
                 
-                # 補上模板 (例如 %{}%)
+                # 優先處理 'MY_LOCATION' 地理空間信號
+                if any(str(item).upper() == "MY_LOCATION" for item in val_list):
+                    logger.warning(f"[SQL Builder Warning][SID: {s_id}] 目前不支援NEAR模式")
+                    
+                    # 拋棄不穩定的 self 屬性，直接抓從上層傳遞下來的 user_location
+                    user_loc = user_location 
+                    
+                    if user_loc and "lat" in user_loc and "lng" in user_loc:
+                        limit_meter = node.get("distance", 1000)
+                        haversine_where = self._build_haversine_where_clause(
+                            u_lat=user_loc["lat"], 
+                            u_lng=user_loc["lng"], 
+                            limit_meter=limit_meter
+                        )
+                        logger.info(f"[SQL Builder][SID: {s_id}] 已成功注入第一階段 RDB 空間半徑預過濾條件 ({limit_meter}m)")
+                        return haversine_where
+                    else:
+                        logger.error(f"[SQL Builder Error] 偵測到 MY_LOCATION 但未提供 user_location")
+                        return "1=0"
+                
+                if cmp == "near":
+                    logger.warning(f"[SQL Builder Warning][SID: {s_id}] 目前不支援NEAR模式")
+                
+                # 處理集合型模糊比對 (IN / NOT IN) 轉 LIKE
+                if cmp in ["in", "not in"] or len(val_list) > 1:
+                    if not val_list: 
+                        return "1=0" if cmp != "not in" else "1=1"
+                    like_clauses = []
+                    for item in val_list:
+                        p_name = f"p{self.param_counter}"
+                        self.query_params[p_name] = SQLSetting.LIKE_TEMPLATE.format(item)
+                        self.param_counter += 1
+                        like_clauses.append(f"{db_col} LIKE %({p_name})s")
+                    join_op = " AND " if cmp == "not in" else " OR "
+                    if cmp == "not in":
+                        like_clauses = [c.replace("LIKE", "NOT LIKE") for c in like_clauses]
+                    return f"({join_op.join(like_clauses)})"
+                # 處理單一行政區標準 LIKE
+                else:
+                    target_val = val_list[0]
+                    p_name = f"p{self.param_counter}"
+                    self.query_params[p_name] = SQLSetting.LIKE_TEMPLATE.format(target_val)
+                    self.param_counter += 1
+                    return f"{db_col} LIKE %({p_name})s"
+
+            # -------------------------------------------------------------
+            # 💡 【非 address 的一般欄位處理】 (維持原樣)
+            # -------------------------------------------------------------
+            p_name = f"p{self.param_counter}"
+            cmp_upper = cmp.upper()
+
+            # 強制模糊比對欄位 (如 restaurant_name)
+            if key in SQLSetting.FORCE_LIKE_FIELDS or cmp_upper == "LIKE":
+                target_val = val[0] if isinstance(val, list) else val
                 param_value = target_val if "%" in str(target_val) else SQLSetting.LIKE_TEMPLATE.format(target_val)
                 self.query_params[p_name] = param_value
                 self.param_counter += 1
                 return f"{db_col} LIKE %({p_name})s"
 
-            # --- 2. 處理集合查詢 (IN / NOT IN) ---
-            elif cmp in ["IN", "NOT IN"]:
+            # 標準 IN / NOT IN 集合查詢
+            elif cmp_upper in ["IN", "NOT IN"]:
                 val_list = val if isinstance(val, list) else [val]
                 if not val_list: 
-                    return "1=0" if cmp == "IN" else "1=1"
+                    return "1=0" if cmp_upper == "IN" else "1=1"
                 p_names = []
                 for item in val_list:
                     current_p = f"p{self.param_counter}"
                     self.query_params[current_p] = item
                     p_names.append(f"%({current_p})s")
                     self.param_counter += 1
-                return f"{db_col} {cmp} ({', '.join(p_names)})"
+                return f"{db_col} {cmp_upper} ({', '.join(p_names)})"
 
-            # --- 3. 標準精準比對 ---
+            # 其餘標準精準比對 (例如時間、分數等)
             else:
                 self.query_params[p_name] = val
                 self.param_counter += 1
-                return f"{db_col} {cmp} %({p_name})s"
+                return f"{db_col} {cmp_upper} %({p_name})s"
         
         logger.warning(f"!!! [SQL Builder Warning] 欄位 '{key}' 找不到 Mapping 配置")
         return None
@@ -538,30 +563,22 @@ class HybridSQLBuilder:
         """
         s_id = plan.get("s_id")
         logger.info(f"[SQL Builder][SID: {s_id}] 開始建構總數統計 SQL (Count Query)")
-        # 確保 Count 查詢從 p0 開始，且不殘留舊參數 ---
 
-        # 記錄 count SQL 建構起始時間，用於觀察 Count 查詢的 SQL 組裝是否有效率瓶頸
-        # 為什麼單獨計時：Count SQL 與主查詢 SQL 的條件邏輯相同，但通常更快；若兩者耗時差異過大，代表 recursive_parse 有異常
         t0_count_sql = time.perf_counter()
 
         where_sql = plan.get("_cached_where") 
         self.query_params = plan.get("_cached_params", {})        
 
-
         sql = "SELECT COUNT(DISTINCT p.id) AS total FROM all_places p "
-        # 實驗性測試：拿掉 JOIN
-        # sql += " LEFT JOIN Place_Attributes as pa ON p.id = pa.place_id"
 
-        # 如果 WHERE 子句中有提到 pa. (來自屬性表)，就必須 JOIN，否則 SQL 會報錯
-        if where_sql and "pa." in where_sql:
+        # --- 修改這裡：不論是 WHERE 還是 SELECT 欄位有用到 pa. 表，都必須 LEFT JOIN ---
+        if (where_sql and "pa." in where_sql) or any("pa." in field for field in plan.get("select_fields", [])):
             sql += " LEFT JOIN Place_Attributes as pa ON p.id = pa.place_id "
         
         final_where = []
-
         if where_sql:
             final_where.append(where_sql)
             
-        # 向量 ID 邏輯保持不變
         if plan.get("vector_needed") and vector_result_ids is not None:
             if len(vector_result_ids) > 0:
                 ids_str = ",".join(str(int(x)) for x in vector_result_ids)
@@ -572,9 +589,26 @@ class HybridSQLBuilder:
         if final_where:
             sql += " WHERE " + " AND ".join(final_where)
 
-        # 記錄 build_count_sql 函式總耗時至 CSV
         log_function_timing("build_count_sql", s_id, time.perf_counter() - t0_count_sql)
 
         return sql, self.query_params
     
-    
+    def _build_haversine_where_clause(self, u_lat, u_lng, limit_meter):
+        """距離半徑算專用函式"""
+        limit_km = limit_meter / 1000.0  
+        p_lat = f"u_lat_{self.param_counter}"
+        p_lng = f"u_lng_{self.param_counter}"
+        p_dist = f"u_dist_{self.param_counter}"
+        
+        self.query_params[p_lat] = u_lat
+        self.query_params[p_lng] = u_lng
+        self.query_params[p_dist] = limit_km
+        self.param_counter += 1
+        
+        return (
+            f"(6371 * acos("
+            f"cos(radians(%({p_lat})s)) * cos(radians(p.lat)) * "
+            f"cos(radians(p.lng) - radians(%({p_lng})s)) + "
+            f"sin(radians(%({p_lat})s)) * sin(radians(p.lat))"
+            f")) <= %({p_dist})s"
+        )

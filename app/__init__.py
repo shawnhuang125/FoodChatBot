@@ -92,12 +92,37 @@ async def startup_event():
 async def shutdown_event():
     logger.info("FastAPI service is shutting down...")
     
-    # 1. 先關閉資料庫連線池
+    # ── 1. 先關閉資料庫連線池 ──────────────────────────────────────────
     try:
         await close_all_connections()
         logger.info("[DB] 資料庫連線池已安全釋放。")
     except Exception as e:
         logger.error(f"[DB] 關閉連線池時發生錯誤: {e}")
 
-    # 2. 最後才關閉日誌監聽器 (確保最後的日誌有被寫入)
-    app_log_manager.stop_logging()
+    # ── 2. ⚡【鋼鐵斷流優化】：徹底解決日誌監聽器卡死 Terminal 的問題 ───────
+    try:
+        logger.info("[Logger] 正在強制清空日誌緩衝區並關閉監聽器...")
+        
+        # A. 物理清空：強制將目前記憶體裡殘留的日誌全部 Flush 寫入硬碟，防止遺失
+        import logging
+        for handler in logging.root.handlers[:]:
+            handler.flush()
+            
+        # B. 呼叫你的關閉函式
+        app_log_manager.stop_logging()
+        logger.info("[Logger] 關閉日誌監聽器成功。")
+        
+    except Exception as e:
+        print(f"!!! [Logger Shutdown Error] 監聽器關閉失敗: {e}")
+    finally:
+        # C. 終極保險（物理斷流）：
+        # 如果因為作業系統執行緒鎖定（Lock）導致 stop_logging() 沒把執行緒殺乾淨，
+        # 我們直接在 Python 層面將所有 Root 上的 handlers 清空並關閉，強制釋放 I/O 句柄（Handles）。
+        # 這樣就能向作業系統宣告「所有底層執行緒均已無工作」，讓進程（Process）可以一秒秒退！
+        try:
+            import logging
+            logging.shutdown() 
+        except:
+            pass
+
+    logger.info("FastAPI service shutdown process finished.")

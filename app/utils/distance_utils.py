@@ -33,3 +33,30 @@ def get_haversine_distance_sql(user_lat,user_lng, lat_col="p.lat", lng_col="p.ln
     )
     """
     return sql.strip()
+
+def _build_haversine_where_clause(self, u_lat, u_lng, limit_meter):
+        """
+        封裝 Haversine 距離公式，生成第一階段 RDB 空間半徑預過濾的 WHERE 子句
+        """
+        limit_km = limit_meter / 1000.0  # 將公尺轉為公里
+        
+        # 生成防注入的動態參數名稱
+        p_lat = f"u_lat_{self.param_counter}"
+        p_lng = f"u_lng_{self.param_counter}"
+        p_dist = f"u_dist_{self.param_counter}"
+        
+        # 寫入全域 query_params 字典中
+        self.query_params[p_lat] = u_lat
+        self.query_params[p_lng] = u_lng
+        self.query_params[p_dist] = limit_km
+        self.param_counter += 1
+        
+        # 組合標準的 MySQL 三角函數 Haversine 算式 (地球半徑採 6371 公里)
+        haversine_sql = (
+            f"(6371 * acos("
+            f"cos(radians(%({p_lat})s)) * cos(radians(p.lat)) * "
+            f"cos(radians(p.lng) - radians(%({p_lng})s)) + "
+            f"sin(radians(%({p_lat})s)) * sin(radians(p.lat))"
+            f")) <= %({p_dist})s"
+        )
+        return haversine_sql

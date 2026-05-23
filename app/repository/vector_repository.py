@@ -32,74 +32,16 @@ class VectorRepository:
             )
         return self.client
 
-    # 向量搜尋功能(只針對rdbms過濾出來的店家ID列表去做向量運算)
-    async def search_in_ids_pure_similarity(self, query_str: str, rdbms_ids: List[Any],must_have_tags: List[str] = None,base_amenities: List[str] = None ) -> List[VectorSearchResult]:
-        
-        self.client = await self._ensure_client()
-        # 前置處理
-        try:
-            # 因為 Qdrant 存的店家id是字串，必須把 SQL 拿到的店家id資料型態轉成字串
-            clean_ids = [int(i) for i in rdbms_ids if i is not None]
-        except (ValueError, TypeError):
-            return []
-        if not clean_ids: return []
-
-        filter_conditions = [
-            qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))
-        ]
-
-        # 2. 如果有指定的服務標籤，加入 must 條件
-        if must_have_tags:
-            for tag in must_have_tags:
-                filter_conditions.append(
-                    # 去掉 "payload."，直接寫欄位名 (除非你的 JSON 裡面真的包了一層 payload)
-                    qmodels.FieldCondition(key="facility_tags", match=qmodels.MatchValue(value=tag))
-                )
-
-        search_filter = qmodels.Filter(must=filter_conditions)
-
-        # 將自然語言搜尋字串轉成向量
-        async with self.gpu_limit:
-            query_vector = self.model.encode(query_str, normalize_embeddings=True).tolist()
-        
-
-        try:
-            logger.info(f"執行語意排序，範圍筆數: {len(clean_ids)}")
-            response = await self.client.query_points(
-                collection_name=self.collection_name,
-                query=query_vector, # 使用傳入的向量
-                query_filter=search_filter,
-                limit=30,
-                with_payload=True
-            )
-            results = response.points
-        except AttributeError:
-            # ... 舊版 API 相容邏輯維持原樣 ...
-            results = await self.client.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                query_filter=search_filter,
-                limit=30,
-                with_payload=True
-            )
-
-        # 4. 回傳結果
-        return [VectorSearchResult(
-                id=res.payload.get("place_id"), 
-                score=res.score,
-                review_summary=res.payload.get("review_summary", "")
-                ) 
-                for res in results if res.payload
-                ]
     
 
-    async def search_in_ids_hybrid(
+    async def search_in_ids(
         self, 
         query_vector: List[float],
-        rdbms_ids: List[Any], 
-        facility_tags: List[str] = None  # 變數名稱依要求使用 facility_tags
+        rdbms_ids: List[Any]
     ) -> List[VectorSearchResult]:
-        
+        """
+        純語意特徵招回通道：取消硬性過濾 Payload，僅實施 RDBMS ID 範疇限縮
+        """
         self.client = await self._ensure_client()
 
         try:
@@ -108,29 +50,18 @@ class VectorRepository:
             return []
         if not clean_ids: return []
 
-        # 1. 基礎 Place ID 範圍過濾
-        filter_conditions = [
-            qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))
-        ]
+        # 唯一過濾條件：只鎖定 MySQL 粗篩給我們的 500 筆黃金種子
+        search_filter = qmodels.Filter(
+            must=[qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))]
+        )
 
-        # 2. 硬性屬性過濾 (Filtering)
-        if facility_tags:
-            for tag in facility_tags:
-                filter_conditions.append(
-                    qmodels.FieldCondition(key="facility_tags", match=qmodels.MatchValue(value=tag))
-                )
-
-        search_filter = qmodels.Filter(must=filter_conditions)
-
-
-        # 4. 執行搜尋
         try:
-            logger.info(f"執行混合過濾搜尋，範圍筆數: {len(clean_ids)}, 硬性標籤: {facility_tags}")
+            logger.info(f"[Vector Repo] 執行純特徵空間投影，候選範疇: {len(clean_ids)}")
             response = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector,
                 query_filter=search_filter,
-                limit=30,
+                limit=500,  # 👈 核心調整：調高上限，允許大池子裡的店家通通拿回特徵分數進行矩陣洗牌
                 with_payload=True
             )
             results = response.points
@@ -139,16 +70,18 @@ class VectorRepository:
                 collection_name=self.collection_name,
                 query_vector=query_vector,
                 query_filter=search_filter,
-                limit=30,
+                limit=500,
                 with_payload=True
             )
 
-        return [VectorSearchResult(
+        return [
+            VectorSearchResult(
                 id=res.payload.get("place_id"), 
                 score=res.score,
                 review_summary=res.payload.get("review_summary", "")
-                ) for res in results if res.payload]
-    
+            ) 
+            for res in results if res.payload
+        ]
 
 
     async def get_dtos_by_ids(self, rdbms_ids: List[Any]) -> List[VectorSearchResult]:
@@ -157,14 +90,13 @@ class VectorRepository:
         
         clean_ids = [int(i) for i in rdbms_ids if i is not None]
         
-        # 使用 scroll 進行精確抓取
         response, _ = await self.client.scroll(
             collection_name=self.collection_name,
             scroll_filter=qmodels.Filter(must=[
                 qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))
             ]),
-            with_payload=True, # 必須設為 True 才能拿回 review_summary 等資料
-            limit=len(clean_ids)
+            with_payload=True, 
+            limit=500  
         )
         
         # 直接回傳封裝好的 DTO，LLM 拿到的就是完整的上下文 (Context)
