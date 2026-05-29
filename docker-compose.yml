@@ -6,8 +6,17 @@ services:
     container_name: streaming-gateway
     ports:
       - "5000:5000"
-    env_file:           # 告訴 Docker 啟動時把 .env 的變數全塞進容器裡
+    # 🌟 關鍵修正：開啟 TTY 與標準輸入，這樣 docker logs 才會正確處理 \r 與無換行字元
+    tty: true
+    stdin_open: true
+    env_file:
       - .env
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       - redis-server
     restart: unless-stopped
@@ -17,4 +26,9 @@ services:
     container_name: gateway-redis
     ports:
       - "6379:6379"
+    environment:
+      - TZ=Asia/Taipei
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     restart: unless-stopped
