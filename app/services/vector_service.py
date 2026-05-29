@@ -3,11 +3,13 @@ from typing import List, Dict, Any, Optional,Tuple
 from app.repository.vector_repository import VectorRepository
 from sentence_transformers import SentenceTransformer
 from app.models.search_dto import VectorSearchResult
+from app.utils.time_checker import is_open_now
 from huggingface_hub import snapshot_download
 import numpy as np
 import math
 from app.utils.app_logger import logger
 import numpy as np
+from datetime import datetime
 import math
 import time
 import json
@@ -88,7 +90,6 @@ class VectorService:
         self.repo = VectorRepository()
 
 
-
     # 檢查向量需求 - 向量搜尋 - 權重計算與排序
     async def search_and_rank(
         self,
@@ -108,6 +109,8 @@ class VectorService:
         runtime_config = plan.get("matrix_runtime_config", {})
         logical_op = runtime_config.get("op", "AND").upper() 
         llm_weights = runtime_config.get("feature_weights", {})
+
+        
 
 
         # 初始化結果容器與狀態指標
@@ -241,6 +244,26 @@ class VectorService:
                 "message": "抱歉，附近目前沒有找到符合您描述的店家。"
             })
             return [], info
+        
+
+        if plan.get("need_time", False):
+            logger.info(f"[Vector Service][SID: {s_id}] 執行營業時間過濾 (need_time=True)...")
+            
+            # 取得解析階段存入的 target_time，若無則為 None (預設為現在)
+            target_time = plan.get("target_time") 
+            
+            original_count = len(restaurant_features)
+            
+            restaurant_features = {
+                rid: scores for rid, scores in restaurant_features.items()
+                # 這裡傳入 target_time
+                if is_open_now(
+                    db_map.get(rid, {}).get("opening_hours", {}), 
+                    target_time=target_time
+                )
+            }
+            
+            logger.info(f"[Vector Service][SID: {s_id}] 時間過濾完成：從 {original_count} 筆縮減至 {len(restaurant_features)} 筆")
 
         # --- 執行權重排序（對齊全新多迴路矩陣執行引擎） ---
         logger.info(f"[Vector Service][SID: {s_id}] 進入動態矩陣精排，候選店家數: {len(db_results)}")

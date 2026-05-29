@@ -106,7 +106,8 @@ class SQLSetting:
             "photos_needed": False,
             "distance_needed": False,
             "user_location": None,
-            "main_intent": json_input.get("main_intent", "query")
+            "main_intent": json_input.get("main_intent", "query"),
+            "need_time": False
         }
     
     # =================================================================
@@ -139,6 +140,16 @@ class SQLSetting:
 
     LIKE_TEMPLATE = "%{}%"
 
+
+    @staticmethod
+    def is_near_request(val_list, cmp):
+        """
+        統一判斷是否觸發地理位置過濾邏輯
+        """
+        has_location_keyword = any(str(item) == "使用者當前位置" for item in val_list)
+        has_near_operator = cmp == "near"
+        return has_location_keyword or has_near_operator
+
 class HybridSQLBuilder:
     def __init__(self):
         # 實例化時不需要再重複定義映射表，直接引用 SQLSetting
@@ -164,45 +175,50 @@ class HybridSQLBuilder:
         # 獲取使用者的經緯度
         # 如果有[info_needed] = 包含distance需求或sort_condition有距離排序
         # 但沒有usder_location就先用預設的經緯度
+        # 獲取使用者的經緯度
+        # 獲取使用者的經緯度
         user_loc = json_input.get("user_location")
-        has_valid_loc = (
-            user_loc 
-            and isinstance(user_loc, dict) 
-            and "lat" in user_loc 
-            and "lng" in user_loc
-        )
 
-        # 檢查本次請求是否包含任何距離需求（欄位或排序）
+        # 安全防禦：確保 user_loc 是有效字典，且含有經緯度 Key，才進行格式化
+        if isinstance(user_loc, dict) and any(k in user_loc for k in ["u_lat", "lat", "u_lng", "lng"]):
+            lat_raw = user_loc.get("u_lat") or user_loc.get("lat")
+            lng_raw = user_loc.get("u_lng") or user_loc.get("lng")
+            
+            lat_f = self.format_coordinate(lat_raw)
+            lng_f = self.format_coordinate(lng_raw)
+            has_valid_loc = (lat_f is not None and lng_f is not None)
+        else:
+            lat_f, lng_f = None, None
+            has_valid_loc = False
+
+        # 2. 檢查距離需求衝突
         requires_distance = (
             "distance" in json_input.get("info_needed", []) or 
             any(s.get("field") == "distance" for s in json_input.get("sort_conditions", []))
         )
 
-        # 如果需要距離排序需求且沒有傳入經緯度或是傳入的經緯度是0.0000000
         if requires_distance and not has_valid_loc:
-            error_msg = "請求衝突：本次查詢要求了距離相關資訊（info_needed 或 sort_conditions），但未提供有效的 user_location 經緯度座標。"
+            error_msg = "請求衝突：要求距離相關資訊但經緯度格式無效或精度不足。"
             logger.error(f"[SQL Builder][SID: {s_id}][終止查詢] {error_msg}")
             raise ValueError(error_msg)
 
-        # 3. 座標判斷邏輯
-        # 狀況 A: 使用者提供了正確座標
-        if user_loc and "lat" in user_loc and "lng" in user_loc:
+        # 3. 座標判斷與注入
+        if has_valid_loc:
             plan.update({
                 "location_source": SQLSetting.LOC_SOURCE_USER,
                 "distance_needed": True,
-                "user_location": user_loc
+                "user_location": {
+                    "lat": lat_f, # 已經是補齊至 6 位的小數 float
+                    "lng": lng_f
+                }
             })
-            logger.info(f"[SQL Builder][SID: {s_id}] 使用使用者提供座標: {user_loc}")
-            
-        # 狀況 B: 沒接收到使用者經緯度
+            logger.info(f"[SQL Builder][SID: {s_id}] 使用高精度(自動補齊)使用者座標: {plan['user_location']}")
         else:
             plan.update({
                 "location_source": SQLSetting.LOC_SOURCE_NONE,
                 "distance_needed": False
             })
-            # 僅記錄日誌，不做任何座標注入處理
-            logger.info(f"[SQL Builder][SID: {s_id}] 未偵測到使用者座標，跳過位置相關處理")
-
+            logger.info(f"[SQL Builder][SID: {s_id}] 未偵測到有效座標，跳過位置相關處理")
 
 
         # 解析意圖模式
@@ -277,15 +293,19 @@ class HybridSQLBuilder:
     
     
     def _scan_for_vector_intent(self, node, plan, s_id):
+        """
+        深度優先掃描邏輯樹 (DFS)，提取向量搜尋意圖
+        安全防禦版：100% 相容巢狀條件 (AND/OR) 與扁平單一條件結構
+        """
         if not node or not isinstance(node, dict):
             return
 
-        # 1. 處理容器型節點（相容外部的 AND 與內部的 OR 嵌套）
+        # 1. 處理容器型控制節點（包含子條件列表 conditions）
         if "conditions" in node and isinstance(node["conditions"], list):
             # 建立運行配置大腦字典，如果 plan 裡還沒有，就初始化它
             if "matrix_runtime_config" not in plan:
                 plan["matrix_runtime_config"] = {
-                    "op": node.get("op", "AND").upper(), # 擷取最外層作為主算符 (AND)
+                    "op": node.get("op", "AND").upper(),  # 擷取該層運算子作為算符
                     "feature_weights": {}
                 }
             
@@ -294,12 +314,18 @@ class HybridSQLBuilder:
                 self._scan_for_vector_intent(child, plan, s_id)
             return
 
-        # 2. 處理單一條件節點（相容新版 {"field": "...", "value": "...", "weight": 0.9}）
-        key = node.get("field")
-        val = node.get("value")
-        weight = node.get("weight", 1.0) # 讀取生成模型給的動態權重
+        # 2. 處理單一條件節點（相容扁平化結構與新/舊單一節點）
+        # 💡 安全提權：使用安全分流確保不會對字串呼叫 .get()
+        key_raw = node.get("field")
+        key = key_raw.get("value") if isinstance(key_raw, dict) else key_raw
+        
+        val_raw = node.get("value")
+        val = val_raw.get("value") if isinstance(val_raw, dict) else val_raw
+        
+        weight_raw = node.get("weight", 1.0)
+        weight = weight_raw.get("value") if isinstance(weight_raw, dict) else weight_raw
 
-        # 樣式 B 邊界保護（相容舊格式）
+        # 樣式 B 邊界保護（相容舊版自訂字典格式）
         if key is None:
             for k, v in node.items():
                 if isinstance(v, dict) and "value" in v:
@@ -311,28 +337,35 @@ class HybridSQLBuilder:
         if not key or val is None:
             return
 
-        # 資料歸一化為字串
+        # 資料歸一化 (確保轉換為字串陣列)
         processed_vals = val if isinstance(val, list) else [val]
 
-        # 3. 如果命中向量特徵目標（去中心化打平收集）
+        # 3. 如果命中向量特徵目標（去中心化打平收集，相容 V2 動態精排矩陣）
         if key in SQLSetting.ALL_VECTOR_TARGETS:
+            if "vector_keywords" not in plan:
+                plan["vector_keywords"] = {}
+                
             if key not in plan["vector_keywords"]:
                 plan["vector_keywords"][key] = []
             
             for item in processed_vals:
-                item_str = str(item)
+                item_str = str(item).strip()
+                if not item_str:
+                    continue
                 if item_str not in plan["vector_keywords"][key]:
                     plan["vector_keywords"][key].append(item_str)
                 
-                # 關鍵聯動：動態將「欄位_特徵值」與「權重」精準對齊，塞進執行配置中
+                # 關鍵聯動：將「欄位_特徵值」與「權重」精準對齊，塞進 V2 精排引擎配置中
                 feat_id = f"{key}_{item_str}"
                 if "matrix_runtime_config" not in plan:
                     plan["matrix_runtime_config"] = {"op": "AND", "feature_weights": {}}
+                if "feature_weights" not in plan["matrix_runtime_config"]:
+                    plan["matrix_runtime_config"]["feature_weights"] = {}
                 
                 plan["matrix_runtime_config"]["feature_weights"][feat_id] = float(weight)
                 
             plan["vector_needed"] = True
-            logger.info(f"[SQL Builder][SID: {s_id}] 捕捉動態特徵權重: {key} -> {processed_vals} (w: {weight})")
+            logger.info(f"[SQL Builder][SID: {s_id}] 成功捕捉動態語意特徵權重: {key} -> {processed_vals} (w: {weight})")
     
 
     # 負責將邏輯樹轉成sql字串
@@ -356,8 +389,11 @@ class HybridSQLBuilder:
         self.param_counter = 0 
         self.query_params = {} 
 
-        # 3. 遞迴生成 WHERE 子句
-        where_sql = self._recursive_parse(logic_tree, s_id, user_location=user_location)
+        # 使用 effective_loc 取代原本的 user_location
+        effective_loc = plan.get("user_location") or user_location
+
+        # 將 effective_loc 傳入遞迴解析器
+        where_sql = self._recursive_parse(logic_tree, plan, s_id, user_location=effective_loc)
 
         if logic_tree and not where_sql:
             logger.warning(f"[SQL Builder][SID: {s_id}] 警告：偵測到邏輯樹但解析結果為空，可能存在格式不符或欄位未定義")
@@ -411,7 +447,7 @@ class HybridSQLBuilder:
         return final_sql, self.query_params
             
 
-    def _recursive_parse(self, node, s_id, user_location=None):
+    def _recursive_parse(self, node, plan, s_id, user_location=None):
         """
         將巢狀 JSON 邏輯樹（包含單節點與多層容器）轉平為 SQL WHERE 字串
         支援：address 欄位的 IN/NOT IN 展開、near 降維警告、以及單節點邊界保護
@@ -424,7 +460,7 @@ class HybridSQLBuilder:
             operator = node["op"].upper()
             child_sqls = []
             for child in node["conditions"]:
-                child_sql = self._recursive_parse(child, s_id, user_location=user_location)
+                child_sql = self._recursive_parse(child, plan, s_id, user_location=user_location)
                 if child_sql:
                     child_sqls.append(child_sql)
             
@@ -468,38 +504,36 @@ class HybridSQLBuilder:
         if key in SQLSetting.SQL_WHERE_MAPPING:
             db_col = SQLSetting.SQL_WHERE_MAPPING[key]
             
-            
-            # 當欄位是 address 時，不論 cmp 是什麼，通通收攏在這一層處理
+            # 🟢 插入點：攔截 open_at 條件
+            if cmp == "open_at":
+                logger.info(f"[SQL Builder][SID: {s_id}] 偵測到營業時間過濾條件，標記 need_time")
+                plan["need_time"] = True  # 🟢 標記為 True
+                # 同時，如果有需要傳遞時間值，可以這樣存：
+                plan["target_time"] = val 
+                return None # 攔截 SQL 生成
+
             if key == "address":
                 val_list = val if isinstance(val, list) else [val]
                 
-                # 優先處理 'MY_LOCATION' 地理空間信號
-                if any(str(item).upper() == "MY_LOCATION" for item in val_list):
-                    logger.warning(f"[SQL Builder Warning][SID: {s_id}] 目前不支援NEAR模式")
-                    
-                    # 拋棄不穩定的 self 屬性，直接抓從上層傳遞下來的 user_location
+                # 1. 地理位置邏輯 (Near Request)
+                if SQLSetting.is_near_request(val_list, cmp):
                     user_loc = user_location 
-                    
                     if user_loc and "lat" in user_loc and "lng" in user_loc:
-                        limit_meter = node.get("distance", 1000)
+                        limit_meter = node.get("distance", 500)
                         haversine_where = self._build_haversine_where_clause(
                             u_lat=user_loc["lat"], 
                             u_lng=user_loc["lng"], 
                             limit_meter=limit_meter
                         )
-                        logger.info(f"[SQL Builder][SID: {s_id}] 已成功注入第一階段 RDB 空間半徑預過濾條件 ({limit_meter}m)")
+                        logger.info(f"[SQL Builder][SID: {s_id}] 已執行 'near' 邏輯：注入地理半徑 {limit_meter}m")
                         return haversine_where
                     else:
-                        logger.error(f"[SQL Builder Error] 偵測到 MY_LOCATION 但未提供 user_location")
-                        return "1=0"
-                
-                if cmp == "near":
-                    logger.warning(f"[SQL Builder Warning][SID: {s_id}] 目前不支援NEAR模式")
-                
-                # 處理集合型模糊比對 (IN / NOT IN) 轉 LIKE
+                        logger.error(f"[SQL Builder Error][SID: {s_id}] 偵測到 near 需求但未提供有效的 user_location")
+                        return "1=0" 
+
+                # 2. 一般地址模糊查詢邏輯 (當不是地理位置查詢時)
                 if cmp in ["in", "not in"] or len(val_list) > 1:
-                    if not val_list: 
-                        return "1=0" if cmp != "not in" else "1=1"
+                    if not val_list: return "1=0" if cmp != "not in" else "1=1"
                     like_clauses = []
                     for item in val_list:
                         p_name = f"p{self.param_counter}"
@@ -510,14 +544,13 @@ class HybridSQLBuilder:
                     if cmp == "not in":
                         like_clauses = [c.replace("LIKE", "NOT LIKE") for c in like_clauses]
                     return f"({join_op.join(like_clauses)})"
-                # 處理單一行政區標準 LIKE
                 else:
                     target_val = val_list[0]
                     p_name = f"p{self.param_counter}"
                     self.query_params[p_name] = SQLSetting.LIKE_TEMPLATE.format(target_val)
                     self.param_counter += 1
                     return f"{db_col} LIKE %({p_name})s"
-
+                
             # -------------------------------------------------------------
             # 💡 【非 address 的一般欄位處理】 (維持原樣)
             # -------------------------------------------------------------
@@ -612,3 +645,16 @@ class HybridSQLBuilder:
             f"sin(radians(%({p_lat})s)) * sin(radians(p.lat))"
             f")) <= %({p_dist})s"
         )
+    
+
+    def format_coordinate(self, val):
+        """將座標強制補齊至小數點後 6 位並轉為 float"""
+        if val is None:
+            return None
+        try:
+            # 強制轉換並格式化為 6 位小數的字串
+            formatted_val = "{:.6f}".format(float(val))
+            return float(formatted_val)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"[SQL Builder] 座標數字轉換失敗，傳入值: {val}，錯誤原因: {e}")
+            return None
