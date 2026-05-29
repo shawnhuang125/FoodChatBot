@@ -1,6 +1,7 @@
 import os
 import sys
 import torch
+torch.cuda.empty_cache()
 import argparse
 import subprocess
 import json
@@ -75,15 +76,54 @@ FT_OPTIM = os.getenv("FT_OPTIM", "paged_adamw_32bit")
 TASK_CONFIG = {
     "1": {
         "dataset": os.getenv("FT_TASK1_DATASET", "train_task1_shuffled.json"), 
-        "output": os.getenv("FT_TASK1_OUTPUT_DIR", "task1")
+        "output": os.getenv("FT_TASK1_OUTPUT_DIR", "task1"),
+        "base_model": os.getenv("FT_TASK1_BASE_MODEL_NAME", FT_BASE_MODEL_NAME),
+        "model_max_length": int(os.getenv("FT_TASK1_MODEL_MAX_LENGTH", FT_MODEL_MAX_LENGTH)),
+        "epochs": int(os.getenv("FT_TASK1_EPOCHS", FT_EPOCHS)),
+        "learning_rate": float(os.getenv("FT_TASK1_LEARNING_RATE", FT_LEARNING_RATE)),
+        "batch_size": int(os.getenv("FT_TASK1_BATCH_SIZE", FT_BATCH_SIZE)),
+        "grad_accum_steps": int(os.getenv("FT_TASK1_GRAD_ACCUM_STEPS", FT_GRAD_ACCUM_STEPS)),
+        "lora_r": int(os.getenv("FT_TASK1_LORA_R", FT_LORA_R)),
+        "lora_alpha": int(os.getenv("FT_TASK1_LORA_ALPHA", FT_LORA_ALPHA)),
+        "lora_dropout": float(os.getenv("FT_TASK1_LORA_DROPOUT", FT_LORA_DROPOUT)),
+        "target_modules": [m.strip() for m in os.getenv("FT_TASK1_TARGET_MODULES", FT_TARGET_MODULES_STR).split(',')],
+        "logging_steps": int(os.getenv("FT_TASK1_LOGGING_STEPS", FT_LOGGING_STEPS)),
+        "save_steps": int(os.getenv("FT_TASK1_SAVE_STEPS", FT_SAVE_STEPS)),
+        "optim": os.getenv("FT_TASK1_OPTIM", FT_OPTIM)
     },
     "2": {
         "dataset": os.getenv("FT_TASK2_DATASET", "train_task2_shuffled.json"), 
-        "output": os.getenv("FT_TASK2_OUTPUT_DIR", "task2")
+        "output": os.getenv("FT_TASK2_OUTPUT_DIR", "task2"),
+        "base_model": os.getenv("FT_TASK2_BASE_MODEL_NAME", FT_BASE_MODEL_NAME),
+        "model_max_length": int(os.getenv("FT_TASK2_MODEL_MAX_LENGTH", FT_MODEL_MAX_LENGTH)),
+        "epochs": int(os.getenv("FT_TASK2_EPOCHS", FT_EPOCHS)),
+        "learning_rate": float(os.getenv("FT_TASK2_LEARNING_RATE", FT_LEARNING_RATE)),
+        "batch_size": int(os.getenv("FT_TASK2_BATCH_SIZE", FT_BATCH_SIZE)),
+        "grad_accum_steps": int(os.getenv("FT_TASK2_GRAD_ACCUM_STEPS", FT_GRAD_ACCUM_STEPS)),
+        "lora_r": int(os.getenv("FT_TASK2_LORA_R", FT_LORA_R)),
+        "lora_alpha": int(os.getenv("FT_TASK2_LORA_ALPHA", FT_LORA_ALPHA)),
+        "lora_dropout": float(os.getenv("FT_TASK2_LORA_DROPOUT", FT_LORA_DROPOUT)),
+        "target_modules": [m.strip() for m in os.getenv("FT_TASK2_TARGET_MODULES", FT_TARGET_MODULES_STR).split(',')],
+        "logging_steps": int(os.getenv("FT_TASK2_LOGGING_STEPS", FT_LOGGING_STEPS)),
+        "save_steps": int(os.getenv("FT_TASK2_SAVE_STEPS", FT_SAVE_STEPS)),
+        "optim": os.getenv("FT_TASK2_OPTIM", FT_OPTIM)
     },
     "3": {
         "dataset": os.getenv("FT_TASK3_DATASET", "train_task3_shuffled.json"),
-        "output": os.getenv("FT_TASK3_OUTPUT_DIR", "task3")
+        "output": os.getenv("FT_TASK3_OUTPUT_DIR", "task3"),
+        "base_model": os.getenv("FT_TASK3_BASE_MODEL_NAME", FT_BASE_MODEL_NAME),
+        "model_max_length": int(os.getenv("FT_TASK3_MODEL_MAX_LENGTH", FT_MODEL_MAX_LENGTH)),
+        "epochs": int(os.getenv("FT_TASK3_EPOCHS", FT_EPOCHS)),
+        "learning_rate": float(os.getenv("FT_TASK3_LEARNING_RATE", FT_LEARNING_RATE)),
+        "batch_size": int(os.getenv("FT_TASK3_BATCH_SIZE", FT_BATCH_SIZE)),
+        "grad_accum_steps": int(os.getenv("FT_TASK3_GRAD_ACCUM_STEPS", FT_GRAD_ACCUM_STEPS)),
+        "lora_r": int(os.getenv("FT_TASK3_LORA_R", FT_LORA_R)),
+        "lora_alpha": int(os.getenv("FT_TASK3_LORA_ALPHA", FT_LORA_ALPHA)),
+        "lora_dropout": float(os.getenv("FT_TASK3_LORA_DROPOUT", FT_LORA_DROPOUT)),
+        "target_modules": [m.strip() for m in os.getenv("FT_TASK3_TARGET_MODULES", FT_TARGET_MODULES_STR).split(',')],
+        "logging_steps": int(os.getenv("FT_TASK3_LOGGING_STEPS", FT_LOGGING_STEPS)),
+        "save_steps": int(os.getenv("FT_TASK3_SAVE_STEPS", FT_SAVE_STEPS)),
+        "optim": os.getenv("FT_TASK3_OPTIM", FT_OPTIM)
     }
 }
 
@@ -112,16 +152,16 @@ def train_task(task_id):
         llm_int8_has_fp16_weight=False
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(FT_BASE_MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(config["base_model"])
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
-    tokenizer.model_max_length = FT_MODEL_MAX_LENGTH
+    tokenizer.model_max_length = config["model_max_length"]
 
     model = AutoModelForCausalLM.from_pretrained(
-        FT_BASE_MODEL_NAME, 
+        config["base_model"], 
         device_map="auto",              
         quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16      
+        dtype=torch.bfloat16      
     )
 
     model = prepare_model_for_kbit_training(model)
@@ -131,10 +171,10 @@ def train_task(task_id):
     # ==========================================
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
-        target_modules=FT_TARGET_MODULES,
-        r=FT_LORA_R,               
-        lora_alpha=FT_LORA_ALPHA,      
-        lora_dropout=FT_LORA_DROPOUT,   
+        target_modules=config["target_modules"],
+        r=config["lora_r"],               
+        lora_alpha=config["lora_alpha"],      
+        lora_dropout=config["lora_dropout"],   
         bias="none"
     )
 
@@ -161,20 +201,20 @@ def train_task(task_id):
     # ==========================================
     training_args = TrainingArguments(
         output_dir=output_dir,
-        per_device_train_batch_size=FT_BATCH_SIZE,  
-        gradient_accumulation_steps=FT_GRAD_ACCUM_STEPS,  
+        per_device_train_batch_size=config["batch_size"],  
+        gradient_accumulation_steps=config["grad_accum_steps"],  
         gradient_checkpointing=True,
-        learning_rate=FT_LEARNING_RATE,             
+        learning_rate=config["learning_rate"],             
         lr_scheduler_type="cosine",
-        logging_steps=FT_LOGGING_STEPS,               # 🎯 每 N 步觸發一次 log，會被我們存下來
+        logging_steps=config["logging_steps"],        # 🎯 每 N 步觸發一次 log，會被我們存下來
         warmup_ratio=0.1,
-        num_train_epochs=FT_EPOCHS,             
+        num_train_epochs=config["epochs"],             
         save_strategy="steps",          
-        save_steps=FT_SAVE_STEPS,                  
+        save_steps=config["save_steps"],                  
         save_total_limit=15,            
         bf16=True,                      
         fp16=False,
-        optim=FT_OPTIM,      
+        optim=config["optim"],      
         report_to="none",                    
         dataloader_num_workers=0        
     )

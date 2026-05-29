@@ -46,8 +46,8 @@ with st.sidebar:
     st.header("📍 模擬環境設定")
     sim_date = st.date_input("模擬日期", value=date.today())
     sim_time = st.time_input("模擬時間", value=datetime.now().time())
-    sim_lat = st.number_input("Lat (緯度 - 預設崑山科大)", value=GUI_DEFAULT_LAT, format="%.4f")
-    sim_lng = st.number_input("Lng (經度 - 預設崑山科大)", value=GUI_DEFAULT_LNG, format="%.4f")
+    sim_lat = st.number_input("Lat (緯度 - 預設崑山科大)", value=GUI_DEFAULT_LAT, format="%.6f", step=0.000001)
+    sim_lng = st.number_input("Lng (經度 - 預設崑山科大)", value=GUI_DEFAULT_LNG, format="%.6f", step=0.000001)
     # 組合為系統認可的字串格式
     current_sim_datetime = datetime.combine(sim_date, sim_time).strftime("%Y-%m-%d %H:%M:%S")
     
@@ -108,8 +108,10 @@ if prompt := st.chat_input("請輸入測試訊息..."):
         "sid": user_id,
         "text": prompt,
         "time": current_sim_datetime,
-        "lat": float(sim_lat), 
-        "lng": float(sim_lng)
+        "gps": {
+            "lat": float(sim_lat),
+            "lng": float(sim_lng)
+        }
     }
 
     # 3. 處理 AI 串流回覆
@@ -127,8 +129,8 @@ if prompt := st.chat_input("請輸入測試訊息..."):
                 first_token_received = False
                 
                 try:
-                    # timeout 與環境變數相配合
-                    async with httpx.AsyncClient(timeout=GUI_API_TIMEOUT) as client:
+                    # 取消 timeout 設定 (timeout=None)，讓前端可以無限期等待模型推論完成
+                    async with httpx.AsyncClient(timeout=None) as client:
                         async with client.stream("POST", f"{backend_url}/text_bot_input", json=payload) as response:
                             if response.status_code != 200:
                                 st.error(f"❌ 後端伺服器回應錯誤: {response.status_code}")

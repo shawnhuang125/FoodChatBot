@@ -20,7 +20,7 @@ tokenizer = None
 # 推論超參數提取自 .env 檔案
 # ==========================================
 TASK1_MAX_TOKENS = int(os.getenv("TASK1_MAX_TOKENS", 256))
-TASK1_REP_PENALTY = float(os.getenv("TASK1_REP_PENALTY", 1.05))
+TASK1_REP_PENALTY = float(os.getenv("TASK1_REP_PENALTY", 1.0))
 
 TASK2_MAX_TOKENS = int(os.getenv("TASK2_MAX_TOKENS", 512))
 TASK2_TEMP = float(os.getenv("TASK2_TEMP", 0.7))
@@ -67,7 +67,7 @@ def load_all_models():
         model_name, 
         device_map="auto",
         quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16
+        dtype=torch.bfloat16
     )
 
     logger.info("🔄 正在載入 Task 1 主大腦...")
@@ -94,10 +94,21 @@ async def infer(messages, mode="task1"):
     loop = asyncio.get_running_loop()
     streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
-    if mode in ["task1", "task2", "task3"]:
-        model.set_adapter(mode)
+    if mode == "base":
+        # 避免觸發 transformers 的 ValueError，直接呼叫 PEFT 底層的禁用方法
+        if hasattr(model, "base_model") and hasattr(model.base_model, "disable_adapter_layers"):
+            model.base_model.disable_adapter_layers()
     else:
-        model.set_adapter("task1")
+        # 重新啟用 LoRA
+        if hasattr(model, "base_model") and hasattr(model.base_model, "enable_adapter_layers"):
+            model.base_model.enable_adapter_layers()
+            
+        if hasattr(model, "peft_config") and mode in model.peft_config.keys():
+            model.set_adapter(mode)
+        elif mode in ["task1", "task2", "task3"]:
+            model.set_adapter(mode)
+        else:
+            model.set_adapter("task1")
 
     text = tokenizer.apply_chat_template(
         messages,
@@ -108,7 +119,7 @@ async def infer(messages, mode="task1"):
 
     stop_words = ["<|im_end|>", "<|endoftext|>"]
 
-    if mode == "task1":
+    if mode.startswith("task1") or mode == "base":
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,

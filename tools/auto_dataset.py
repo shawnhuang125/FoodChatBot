@@ -7,7 +7,9 @@ import inspect
 from dotenv import load_dotenv
 from dataset_manifest import SCENARIO_TEMPLATES
 # 從 manifest 導入設定
-from dataset_manifest import VOCAB, FIELD_SPECS, FIELD_MENU, SORT_OPTIONS, TASK_PROMPTS, NLG_TEMPLATES, SLOT_FILLING_PHRASES, CHATTER_VOCAB
+from dataset_manifest import CHATTER_VOCAB, FIELD_MENU, FIELD_SPECS, NLG_TEMPLATES, SORT_OPTIONS, TASK_PROMPTS, VOCAB, SLOT_FILLING_PHRASES
+from utils import _calculate_intensity_and_weight, parse_address_logic, parse_rating_logic, parse_restaurant_type_logic, parse_time_logic
+from datetime import datetime
 
 # 載入 .env 檔案
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
@@ -17,10 +19,6 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # =====================================================================
 # 從 .env 讀取設定
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-SHUFFLE_SEED = int(os.getenv("FT_SHUFFLE_SEED", 42))
-
-# 設定隨機種子以確保可複現性
-random.seed(SHUFFLE_SEED)
 
 # =====================================================================
 # [區塊 1.5] 自動化輸入模擬器 (支援 --sequence)
@@ -41,17 +39,56 @@ def consume_input(prompt_text, seq_iter=None):
 # =====================================================================
 # [區塊 2] 核心邏輯積木與工具
 # =====================================================================
-def leaf(field, val, resolved=True):
-    cmp_op = "="
-    if field in FIELD_SPECS and "cmp" in FIELD_SPECS[field]:
-        cmp_op = FIELD_SPECS[field]["cmp"]
-    elif field == "rating": 
-        cmp_op = ">="
+def leaf(field, val, index=0, resolved=True, text_context=""):
+    """
+    建立 Logic Tree 2.0 的單一條件葉節點。
+    整合 utils.py 的意圖與權重分析，支援強度(constraint_level)與順序(index)衰減。
+    """
+    text_for_calc = text_context if text_context else str(val)
+    
+    if field == "address":
+        node = parse_address_logic(text_for_calc, index)
+        if node.get("value") != ["使用者當前位置"]:
+            node["value"] = [val] if val else [text_for_calc]
+        if not resolved:
+            node["resolved"] = False
+        return node
+    elif field == "time":
+        base_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        node = parse_time_logic(base_date_str, text_for_calc, index)
+        if not resolved:
+            node["resolved"] = False
+        return node
+    elif field == "rating":
+        node = parse_rating_logic(text_for_calc, index)
+        if not resolved:
+            node["resolved"] = False
+        return node
+    elif field == "restaurant_type":
+        node = parse_restaurant_type_logic(text_for_calc, index)
+        node["value"] = [val]
+        if not resolved:
+            node["resolved"] = False
+        return node
+    else:
+        cmp_op = "="
+        if field in FIELD_SPECS and "cmp" in FIELD_SPECS[field]:
+            cmp_op = FIELD_SPECS[field]["cmp"]
+        elif field == "restaurant_name":
+            cmp_op = "in"
+            
+        constraint_level, weight = _calculate_intensity_and_weight(text_for_calc, index)
         
-    node = {field: {"cmp": cmp_op, "value": [val]}}
-    if not resolved:
-        node[field]["resolved"] = False
-    return node
+        node = {
+            "field": field,
+            "value": [val],
+            "cmp": cmp_op,
+            "constraint_level": constraint_level,
+            "weight": weight
+        }
+        if not resolved:
+            node["resolved"] = False
+        return node
 
 def AND(*conditions):
     return {"op": "AND", "conditions": list(conditions)}
@@ -59,18 +96,36 @@ def AND(*conditions):
 def OR(*conditions):
     return {"op": "OR", "conditions": list(conditions)}
 
-def get_text(field, val):
-    return random.choice(FIELD_SPECS[field]["tmpl"]).format(val=val)
+def get_text(field, val, dist=None):
+    """
+    根據欄位與給定的數值，套用 manifest 中的隨機對話樣板。
+    支援 {dist} 距離參數安全替補，避免 KeyError。
+    """
+    tmpl = random.choice(FIELD_SPECS[field]["tmpl"])
+    
+    # 防呆機制：若樣板包含 {dist} 但外部未提供，給予預設距離詞
+    if dist is None:
+        dist = random.choice(VOCAB.get("distances", ["附近", "1公里"]))
+        
+    # Python 的 str.format() 允許傳入未被樣板使用的變數，因此這樣寫 100% 安全
+    return tmpl.format(val=val, dist=dist)
 
 def ask_fields(prompt_text, hint="12", seq_iter=None):
     print("\n  [1] 地址(address)  [2] 食物(food_type)    [3] 評分(rating)   [4] 時間(time)")
-    print("  [5] 服務(service_tags) [6] 口味(flavor) [7] 菜系(cuisine)")
+    print("  [5] 服務(service_tags) [6] 口味(flavor) [7] 菜系(cuisine)  [8] 經營型態(restaurant_type)")
     
     f_choice = consume_input(f"  {prompt_text} (輸入代號如 {hint}): ", seq_iter)
     if not f_choice: f_choice = hint[0] 
     return [FIELD_MENU[char] for char in f_choice if char in FIELD_MENU]
 
-def build_intent_json(intent, logic_tree=None, need_time=False, info_needed=None, follow_up=False, sort_conditions=None, page=None, query_id=None):
+def _has_unresolved(node):
+    """ 遞迴檢查 logic_tree 中是否有 resolved: false 的節點 """
+    if not node: return False
+    if "op" in node and "conditions" in node:
+        return any(_has_unresolved(c) for c in node["conditions"])
+    return node.get("resolved") is False
+
+def build_intent_json(intent, logic_tree=None, info_needed=None, follow_up=False, sort_conditions=None, page=None, query_id=None):
     data = {"main_intent": intent}
     
     if intent == "fetch_more":
@@ -81,8 +136,15 @@ def build_intent_json(intent, logic_tree=None, need_time=False, info_needed=None
         data["query_id"] = query_id
         return data
 
+    # 🎯 [解決語法抖動] 強制統一為巢狀結構 (Nested Structure)，單一條件使用 NO_OP 避免干擾模型學習 AND/OR
+    if logic_tree is not None and "op" not in logic_tree:
+        logic_tree = {"op": "NO_OP", "conditions": [logic_tree]}
+
+    if _has_unresolved(logic_tree):
+        follow_up = True
+
     data["follow_up"] = True if follow_up else None
-    data["need_time"] = True if need_time else None
+    # 已移除 need_time，由 Logic Tree 2.0 自動承載時間語意
     data["info_needed"] = info_needed if info_needed else None
     data["logic_tree"] = logic_tree
 
@@ -108,12 +170,22 @@ def package_to_entry(*args, task=None):
     # 🔥 加入這一行：處理 TASK_PROMPTS 中的多餘換行與排版縮進
     sys_prompt = inspect.cleandoc(sys_prompt)
 
+    # 產生動態時間戳記 (或透過基準時間，此處取當前時間)
+    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    context_node = {"role": "context_date", "content": current_time_str}
+
     if len(args) == 1 and isinstance(args[0], list):
         messages = args[0]
+        
+        # 防呆：移除已存在的 context_date，避免遞迴呼叫時重複寫入
+        messages = [m for m in messages if m.get("role") != "context_date"]
+        
         if messages and messages[0].get("role") == "system":
             messages[0]["content"] = sys_prompt
+            messages.insert(1, context_node)
         else:
             messages.insert(0, {"role": "system", "content": sys_prompt})
+            messages.insert(1, context_node)
         return {"messages": messages}
         
     elif len(args) == 2:
@@ -124,6 +196,7 @@ def package_to_entry(*args, task=None):
         return {
             "messages": [
                 {"role": "system", "content": sys_prompt},
+                context_node,
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": assistant_content}
             ]
@@ -135,12 +208,30 @@ def package_to_entry(*args, task=None):
         return {
             "messages": [
                 {"role": "system", "content": sys_prompt},
+                context_node,
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": assistant_str},
                 {"role": "assistant 1", "content": assistant_1_text}
             ]
         }
     return {}
+
+def inject_adversarial_fillers(base_text):
+    """ 🎯 負採樣對抗性資料增強：隨機混入空泛贅詞，訓練模型忽略雜訊 """
+    if random.random() > 0.35:
+        return base_text
+        
+    fillers = VOCAB["adversarial_fillers"]
+    filler = random.choice(fillers)
+    
+    templates = [
+        f"{base_text}之類的{filler}",
+        f"{filler}的話，{base_text}",
+        f"{base_text}這種{filler}",
+        f"{base_text}相關的{filler}"
+    ]
+    
+    return random.choice(templates)
 
 # =====================================================================
 # [區塊 3] 🍽️ 推薦意圖 (Recommend) 專屬生產線
@@ -178,29 +269,48 @@ class RecommendBuilder:
             return {"type": "leaf", "field": "food_type"}
 
     @classmethod
-    def _instantiate_template(cls, node):
+    def _instantiate_template(cls, node, index=0):
         if node["type"] == "leaf":
             field = node["field"]
 
             if field == "rating":
                 val = random.choice(VOCAB["rating"])
-                cmp_symbol = random.choice(list(FIELD_SPECS["rating"]["ops"].keys()))
-                tmpl = random.choice(FIELD_SPECS["rating"]["ops"][cmp_symbol])
-                text = tmpl.format(val=val)
-                logic = {"rating": {"cmp": cmp_symbol, "value": [val]}}
-                return text, logic, False
+                # 智慧樣板判定：如果字串本身已經包含運算或強烈語意，則直接作為文本
+                if isinstance(val, str) and any(kw in val for kw in ["以上", "不到", "滿分", "好評"]):
+                    text = val
+                else:
+                    cmp_symbol = random.choice(list(FIELD_SPECS["rating"]["ops"].keys()))
+                    tmpl = random.choice(FIELD_SPECS["rating"]["ops"][cmp_symbol])
+                    text = tmpl.format(val=val)
+                logic = leaf(field, val, index=index, resolved=True, text_context=text)
+                return text, logic
+
+            if field == "address":
+                # 為了涵蓋「隱式自身定位 (使用者當前位置)」，隨機決定是否不帶明確地址
+                if random.random() < 0.2:
+                    val = ""
+                    dist_val = random.choice(["我附近", "這附近", "我旁邊", "我周邊", "身邊", "當前位置", "附近", "周邊", "500公尺內", "1公里內"])
+                    if random.random() < 0.3 and any(kw in dist_val for kw in ["我附近", "這附近", "我旁邊", "我周邊"]):
+                        fake_addr = random.choice(VOCAB["address"])
+                        text = f"我人在{fake_addr}，{dist_val}"
+                    else:
+                        text = dist_val
+                    return text, leaf(field, val, index=index, text_context=text)
 
             val = random.choice(VOCAB[field])
+            
+            # 🎯 動態距離注入：隨機從詞庫挑選距離詞彙
+            dist_val = random.choice(VOCAB["distances"]) if field == "address" else None
             
             if field == "address" and random.random() > 0.5:
                 val2 = random.choice(VOCAB["address"])
                 combined_val = f"{val2}{val}"
-                text = get_text(field, combined_val) 
-                logic = AND(leaf("address", val2), leaf("address", val))
-                return text, logic, False
+                text = get_text(field, combined_val, dist=dist_val) 
+                logic = AND(leaf("address", val2, index=index, text_context=text), leaf("address", val, index=index+1, text_context=text))
+                return text, logic
 
-            text = get_text(field, val)
-            return text, leaf(field, val), (field == "time")
+            text = get_text(field, val, dist=dist_val)
+            return text, leaf(field, val, index=index, text_context=text)
             
         elif node["type"] == "AND":
             if len(node["children"]) == 2:
@@ -213,24 +323,22 @@ class RecommendBuilder:
                     or_node = c2 if c2["type"] == "OR" else c1
                     
                     if all(c["type"] == "leaf" for c in or_node["children"]):
-                        leaf_t, leaf_l, nt1 = cls._instantiate_template(leaf_node)
+                        leaf_t, leaf_l = cls._instantiate_template(leaf_node, index)
                         or_texts, or_logics = [], []
-                        for c in or_node["children"]:
-                            t, l, nt2 = cls._instantiate_template(c)
+                        for i, c in enumerate(or_node["children"]):
+                            t, l = cls._instantiate_template(c, index + i + 1)
                             or_texts.append(t.rstrip("的")) 
                             or_logics.append(l)
-                            nt1 = nt1 or nt2
                             
                         connector = random.choice(["或是", "或者是", "還是"])
                         text = f"{leaf_t}{connector.join(or_texts)}" 
-                        return text, AND(leaf_l, OR(*or_logics)), nt1
+                        return text, AND(leaf_l, OR(*or_logics))
 
-            texts, logics, need_t = [], [], False
-            for child in node["children"]:
-                t, l, nt = cls._instantiate_template(child)
+            texts, logics = [], []
+            for i, child in enumerate(node["children"]):
+                t, l = cls._instantiate_template(child, index + i)
                 texts.append(t)
                 logics.append(l)
-                need_t = need_t or nt
             
             if all(c["type"] == "leaf" for c in node["children"]):
                 base_texts = [t.rstrip("的") for t in texts]
@@ -248,15 +356,14 @@ class RecommendBuilder:
             else:
                 c = random.choice(["，除此之外還要", "，而且還要", "，同時也要滿足"])
                 text = c.join(texts)
-            return text, AND(*logics), need_t
+            return text, AND(*logics)
             
         elif node["type"] == "OR":
-            texts, logics, need_t = [], [], False
-            for child in node["children"]:
-                t, l, nt = cls._instantiate_template(child)
+            texts, logics = [], []
+            for i, child in enumerate(node["children"]):
+                t, l = cls._instantiate_template(child, index + i)
                 texts.append(t)
                 logics.append(l)
-                need_t = need_t or nt
             
             has_complex_child = any(c["type"] != "leaf" for c in node["children"])
             
@@ -268,7 +375,7 @@ class RecommendBuilder:
             else:
                 text = "看是" + "還是".join(texts) + "都可以"
                 
-            return text, OR(*logics), need_t
+            return text, OR(*logics)
 
     @classmethod
     def universal_dynamic_builder(cls, seq_iter=None, override_count=None):
@@ -294,7 +401,7 @@ class RecommendBuilder:
         
         dataset = []
         for _ in range(generate_count):
-            text, logic, need_time = cls._instantiate_template(template)
+            text, logic = cls._instantiate_template(template)
             
             if sort_input.isdigit() and 1 <= int(sort_input) <= len(SORT_OPTIONS):
                 sort_choice = SORT_OPTIONS[int(sort_input) - 1]
@@ -303,13 +410,13 @@ class RecommendBuilder:
                 
             sort_txt = sort_choice["text_modifier"]
             final_text = f"幫我找{sort_txt}{text}"
+            final_text = inject_adversarial_fillers(final_text)
             
             dataset.append(package_to_entry(
                 final_text, 
                 build_intent_json(
                     intent="recommend", 
                     logic_tree=logic, 
-                    need_time=need_time, 
                     sort_conditions=sort_choice["sort"]
                 ),
                 task=1
@@ -358,10 +465,9 @@ class QueryBuilder:
             generate_count = int(count_str) if count_str.isdigit() and int(count_str) > 0 else 10
 
         dataset = []
-        pronouns = ["這家", "那間", "這間", "他", "它", "那家餐廳"]
+        pronouns = ["這家", "那間", "這間", "他", "它", "那家餐廳", "那家", "這家店", "這間店"]
         
         for _ in range(generate_count):
-            need_time = False
             is_fuzzy = False
             extra_text = "" 
             
@@ -373,12 +479,11 @@ class QueryBuilder:
                 filter_text = random.choice(VOCAB["store_name"])
                 logic = leaf("restaurant_name", filter_text, resolved=True)
             else:
-                filter_text, logic, need_time = RecommendBuilder._instantiate_template(template)
+                filter_text, logic = RecommendBuilder._instantiate_template(template)
 
             if target_choice in ['1', '2'] and extra_filter_template:
-                e_text, e_logic, e_time = RecommendBuilder._instantiate_template(extra_filter_template)
+                e_text, e_logic = RecommendBuilder._instantiate_template(extra_filter_template, index=1)
                 extra_text = e_text
-                need_time = need_time or e_time
                 logic = AND(logic, e_logic)
             
             labels = []
@@ -406,7 +511,6 @@ class QueryBuilder:
                     intent="query",
                     logic_tree=logic,
                     info_needed=selected_info_keys,
-                    need_time=need_time,
                     follow_up=is_fuzzy 
                 ),
                 task=1
@@ -465,6 +569,8 @@ class MultiTurnBuilder:
     def _build_scenario_flow(cls, template_steps, ctx):
         """ [核心引擎] 根據 dataset_manifest.py 中定義的流程設定，動態渲染並組裝對話歷史 """
         messages = [{"role": "system", "content": TASK_PROMPTS["task1"]}]
+        has_entity_in_history = False  # 🆕 實體追蹤檢查
+        
         for step in template_steps:
             stype = step["type"]
             
@@ -477,12 +583,39 @@ class MultiTurnBuilder:
             logic = ctx.get(logic_key) if logic_key in ctx else None
             resolved = step.get("resolved", True)
             
+            # 🆕 【實體追蹤檢查】
+            # 若使用者使用代名詞且 has_entity_in_history 為 false，強制設為未解決
+            is_pronoun = False
+            PRONOUN_LIST = ["這家", "那間", "這間店", "它", "那家餐廳", "那間店", "這間", "那家", "這家店"]
+            if isinstance(logic, str) and logic in PRONOUN_LIST:
+                is_pronoun = True
+            elif logic_key in ["pronoun", "那間店"]:
+                is_pronoun = True
+            elif isinstance(logic, dict) and logic.get("field") == "restaurant_name" and logic.get("value", [""])[0] in PRONOUN_LIST:
+                is_pronoun = True
+
+            if is_pronoun and not has_entity_in_history:
+                resolved = False
+                
             # 若取出來的邏輯是一串字串 (如店名、代名詞)，則自動包裝為 leaf 葉節點
             if isinstance(logic, str):
                  logic = leaf("restaurant_name", logic, resolved=resolved)
             elif logic is None and isinstance(logic_key, str):
                  logic = leaf("restaurant_name", logic_key, resolved=resolved)
                  
+            # 🆕 檢查並更新實體歷史
+            if isinstance(logic, dict) and logic.get("field") == "restaurant_name" and not is_pronoun:
+                has_entity_in_history = True
+            if sys_text:
+                for i in range(10):
+                    if ctx.get(f"store_{i}") and ctx.get(f"store_{i}") in sys_text:
+                        has_entity_in_history = True
+                        break
+                for i in range(1, 10):
+                    if ctx.get(f"store_random_{i}") and ctx.get(f"store_random_{i}") in sys_text:
+                        has_entity_in_history = True
+                        break
+
             # --- 3. 準備 Intent 參數 ---
             intent_kwargs = {}
             if "page" in step:
@@ -497,6 +630,8 @@ class MultiTurnBuilder:
             # 🚨 [規範強制] resolved: false 必定要有 follow_up: true
             if step.get("follow_up") or not resolved:
                 intent_kwargs["follow_up"] = True
+                if isinstance(logic, dict):
+                    logic["resolved"] = False
 
             # --- 4. 裝載對話 ---
             if user_text:
@@ -528,7 +663,9 @@ class MultiTurnBuilder:
     @classmethod
     def generate_nuanced_data(cls, count=1000):
         dataset = []
-        scenarios_to_run = list(range(1, 21)) if count == 20 else [random.randint(1, 20) for _ in range(count)]
+        # 🛡️ 動態讀取劇本總數，避免未來新增劇本時遺漏
+        total_scenarios = len(SCENARIO_TEMPLATES)
+        scenarios_to_run = list(range(1, total_scenarios + 1)) if count == total_scenarios else [random.randint(1, total_scenarios) for _ in range(count)]
 
         for scenario in scenarios_to_run:
             # 🛡️ 動態抽樣與語境構建 (Context Generation)
@@ -536,19 +673,32 @@ class MultiTurnBuilder:
             food_count = random.choices([1, 2, 3, 4], weights=[0.60, 0.25, 0.10, 0.05])[0]
             foods = random.sample(VOCAB["food_type"], k=food_count)
             
+            c_idx = 0
+            addr_logic_base = leaf("address", addr_val, index=c_idx)
+            c_idx += 1
+
             if len(foods) == 1:
-                food_logic = leaf("food_type", foods[0])
+                food_logic = leaf("food_type", foods[0], index=c_idx)
+                c_idx += 1
                 food_text = foods[0]
             else:
-                food_logic = OR(*[leaf("food_type", f) for f in foods])
+                food_logic = OR(*[leaf("food_type", f, index=c_idx + i) for i, f in enumerate(foods)])
+                c_idx += len(foods)
                 connector = random.choice(["或是", "還是", "或者是"])
                 food_text = "、".join(foods[:-1]) + connector + foods[-1]
                 
-            t1_logic = AND(leaf("address", addr_val), food_logic)
-            t1_text = f"在{addr_val}的{food_text}"
+            # 🆕 新增：隨機抽取「經營型態」維度，並建立對應的邏輯節點
+            # 這是為了在多輪對話中，測試模型是否能理解如「路邊攤的牛肉湯」這類結合經營型態與食物種類的複合查詢
+            rest_type_val = random.choice(VOCAB["restaurant_type"])
+            rest_type_logic = leaf("restaurant_type", rest_type_val, index=c_idx)
+            c_idx += 1
+            
+            t1_logic = AND(addr_logic_base, food_logic)
+            t1_text = inject_adversarial_fillers(f"在{addr_val}的{food_text}")
             
             ext_f_type = random.choice(["service_tags", "rating", "flavor"])
-            ext_text, ext_logic, _ = RecommendBuilder._instantiate_template({"type": "leaf", "field": ext_f_type})
+            ext_text, ext_logic = RecommendBuilder._instantiate_template({"type": "leaf", "field": ext_f_type}, index=c_idx)
+            c_idx += 1
 
             stores = random.sample(VOCAB["store_name"], k=10) 
             info_k1 = random.choice(list(VOCAB["info"].keys())); info_v1 = VOCAB["info"][info_k1]
@@ -561,25 +711,36 @@ class MultiTurnBuilder:
             new_food = random.choice([f for f in VOCAB["food_type"] if f not in foods])
             tag_val = random.choice(VOCAB["service_tags"])
             
+            # For Scenario 21
+            addr_2 = random.choice([a for a in VOCAB["address"] if a != addr_val])
+            food_2 = random.choice([f for f in VOCAB["food_type"] if f not in foods])
+            addr_2_and_food_2 = AND(leaf("address", addr_2, index=0), leaf("food_type", food_2, index=1))
+            
             # 📦 將所有可能用到的佔位符與對應的邏輯包裝進 Context
             ctx = {
                 "addr_val": addr_val,
+                "addr_2": addr_2,
                 "food_text": food_text,
                 "food_val": food_text,
+                "food_2": food_2,
                 "t1_text": t1_text,
                 "ext_text": ext_text,
                 "new_food": new_food,
                 "tag_val": tag_val,
+                "rest_type_val": rest_type_val,
                 
                 "t1_logic": t1_logic,
                 "food_logic": food_logic,
                 "ext_logic": ext_logic,
+                "rest_type_logic": rest_type_logic,
                 "t1_logic_and_ext": AND(t1_logic, ext_logic),
-                "addr_and_new_food": AND(leaf("address", addr_val), leaf("food_type", new_food)),
-                "t1_logic_and_tag": AND(t1_logic, leaf("service_tags", tag_val)),
+                "addr_and_new_food": AND(leaf("address", addr_val, index=0), leaf("food_type", new_food, index=1)),
+                "t1_logic_and_tag": AND(t1_logic, leaf("service_tags", tag_val, index=c_idx)),
                 "food_logic_and_ext": AND(food_logic, ext_logic),
-                "addr_and_ext": AND(leaf("address", addr_val), ext_logic),
-                "rating_45": leaf("rating", 4.5),
+                "addr_and_ext": AND(leaf("address", addr_val, index=0), ext_logic),
+                "rating_45": leaf("rating", 4.5, index=0),
+                "addr_2_and_food_2": addr_2_and_food_2,
+                "rest_and_food_logic": AND(rest_type_logic, food_logic),
                 
                 "store_0": stores[0], "store_1": stores[1],
                 "store_random_1": stores[2], "store_random_2": stores[3],
@@ -588,7 +749,7 @@ class MultiTurnBuilder:
                 "store_random_7": stores[8], "store_random_8": stores[9],
                 
                 "那間店": "那間店",
-                "pronoun": random.choice(["這家", "那間", "這間店", "它"]),
+                "pronoun": random.choice(["這家", "那間", "這間店", "它", "這間", "那家", "這家店", "那家餐廳"]),
 
                 "info_k1": info_k1, "info_v1": info_v1,
                 "info_k2": info_k2, "info_v2": info_v2,
@@ -627,7 +788,7 @@ class MultiTurnBuilder:
 
             template = SCENARIO_TEMPLATES[scenario - 1]
             messages = cls._build_scenario_flow(template, ctx)
-            dataset.append({"messages": messages})
+            dataset.append(package_to_entry(messages, task=1))
 
         return dataset
 
@@ -645,11 +806,16 @@ class SlotFillingBuilder:
             info_label = random.choice(list(VOCAB["info"].keys()))
             pronoun = random.choice(["這家", "那間", "這間店", "它", "這家餐廳", "那間店"])
             
-            task1_json = {
-                "main_intent": "query",
-                "logic_tree": {"restaurant_name": {"cmp": "in", "value": [pronoun], "resolved": False}},
-                "follow_up": True
-            }
+            # 廢止手動 Dict 構建，透過 leaf (內部調用 utils.py 的解析函式) 來取得 v2.0 標準結構
+            # 狀態手動注入：手動將 resolved 設為 False
+            logic_node = leaf("restaurant_name", pronoun, resolved=False)
+            
+            # 確保外層 follow_up 為 True
+            task1_json = build_intent_json(
+                intent="query",
+                logic_tree=logic_node,
+                follow_up=True
+            )
 
             if is_first_turn:
                 user_text = f"{pronoun}的{info_label}是多少？"
@@ -660,8 +826,51 @@ class SlotFillingBuilder:
                 dataset.append(package_to_entry(user_text, task1_json, assistant_1_text, task=2))
             
             else:
-                addr = random.choice(VOCAB["address"])
+                # 為了涵蓋「隱式自身定位」，隨機決定是否帶有明確地址
+                is_implicit = random.random() < 0.2
+                if is_implicit:
+                    addr = ""
+                    dist_word = random.choice(["我附近", "這附近", "我旁邊", "我周邊", "身邊", "當前位置", "附近", "周邊", "1公里內", "500公尺內"])
+                    if random.random() < 0.3 and any(kw in dist_word for kw in ["我附近", "這附近", "我旁邊", "我周邊"]):
+                        fake_addr = random.choice(VOCAB["address"])
+                        addr_text = f"我人在{fake_addr}，{dist_word}"
+                    else:
+                        addr_text = dist_word
+                else:
+                    addr = random.choice(VOCAB["address"])
+                    dist_word = random.choice(["附近", "周邊", "1公里內", ""])
+                    addr_text = f"{addr}{dist_word}"
+                
                 food = random.choice(VOCAB["food_type"])
+                time_word = random.choice(["今晚", "現在", "一小時後", ""])
+                
+                user_content = f"幫我找{time_word}{addr_text}的{food}"
+                
+                # 實施「生成即解析」策略：隨機生成口語條件後，透過 leaf 立即呼叫 utils.py 中的解析函式
+                # 導入 condition_counter 實現 Index Tracking，確保生成歷史時的 weight 正確遞減
+                # 若 cmp 為 "near"，parse_address_logic 會自動包含從 utils._parse_distance 轉化而來的 distance 整數欄位
+                # 保證節點完整包含 field, value, cmp, constraint_level, weight
+                condition_counter = 0
+                
+                addr_logic = leaf("address", addr, index=condition_counter, text_context=addr_text)
+                condition_counter += 1
+                
+                food_logic = leaf("food_type", food, index=condition_counter, text_context=food)
+                condition_counter += 1
+                
+                conditions = [addr_logic, food_logic]
+                
+                if time_word:
+                    time_logic = leaf("time", time_word, index=condition_counter, text_context=time_word)
+                    conditions.append(time_logic)
+                    condition_counter += 1
+                
+                recommend_json = build_intent_json(
+                    intent="recommend",
+                    logic_tree=AND(*conditions),
+                    page=1
+                )
+                
                 stores = random.sample(VOCAB["store_name"], k=2)
                 
                 assistant_1_text = random.choice(SLOT_FILLING_PHRASES["multi_turn"]).format(
@@ -671,16 +880,18 @@ class SlotFillingBuilder:
                     store_1=stores[1]
                 )
 
+                # 同步 System Prompt: package_to_entry 會自動插入 role: context_date 節點
+                # 確保 format_dataset.py 能成功讀取並產生包含 ## Context Information 的格式
                 full_history = [
                     {"role": "system", "content": TASK_PROMPTS["task2"]},
-                    {"role": "user", "content": f"幫我找{addr}的{food}"},
-                    {"role": "assistant", "content": f"{{\"main_intent\":\"recommend\",\"logic_tree\":{{\"op\":\"AND\",\"conditions\":[{{\"address\":{{\"cmp\":\"in\",\"value\":[\"{addr}\"]}}}},{{\"food_type\":{{\"cmp\":\"=\",\"value\":[\"{food}\"]}}}}]}},\"page\":1}}"},
+                    {"role": "user", "content": user_content},
+                    {"role": "assistant", "content": json.dumps(recommend_json, ensure_ascii=False, separators=(",", ":"))},
                     {"role": "assistant 1", "content": f"沒問題！這幾間不錯：1. {stores[0]} 2. {stores[1]}"},
                     {"role": "user", "content": f"那{pronoun}的{info_label}是多少？"},
                     {"role": "assistant", "content": json.dumps(task1_json, ensure_ascii=False, separators=(",", ":"))},
                     {"role": "assistant 1", "content": assistant_1_text}
                 ]
-                dataset.append({"messages": full_history})
+                dataset.append(package_to_entry(full_history, task=2))
             
         return dataset
 
@@ -703,11 +914,11 @@ class NLGBuilder:
             is_fallback = (status != "success")
             
             if status == "success":
-                total_count = random.randint(5, 50)
-                num_stores = min(total_count, random.randint(2, 3) if scenario == 1 else 1)
+                total_count = random.randint(1, 300)
+                num_stores = min(total_count, random.choices([1, 2, 3], weights=[0.3, 0.4, 0.3])[0])
             elif status == "partial_success":
-                total_count = random.randint(1, 3)
-                num_stores = min(total_count, random.randint(1, 3) if scenario == 1 else 1)
+                total_count = random.randint(1, 300)
+                num_stores = min(total_count, random.choices([1, 2, 3], weights=[0.3, 0.4, 0.3])[0])
             else:
                 total_count = 0
                 num_stores = 0
@@ -763,8 +974,15 @@ class NLGBuilder:
                     "is_fallback": is_fallback,
                     "ai_behavior_hint": random.choice(VOCAB["AI_HINTS"][status]),
                     "search_status": {
+                        "location_info": {
+                            "type": "default_fallback" if location_source == "fallback_default" else "user_provided",
+                            "message": "OK",
+                            "coordinates": [23.0016, 120.2528]
+                        },
                         "total_count": total_count,
-                        "location_info": {"source": location_source}
+                        "is_incomplete_search": is_fallback,
+                        "suggestion": "",
+                        "debug_details": {}
                     }
                 },
                 "restaurants": final_results
@@ -773,10 +991,14 @@ class NLGBuilder:
             # 🎯 4. 因果一致性語法樹生成
             intro = random.choice(NLG_TEMPLATES["intro"][status])
             
-            if location_source == "fallback_default":
-                intro = f"因為目前不確定妳的確切位置，所以先用預設中心幫妳找。{intro}"
-            if total_count > 10 and status == "success":
-                intro += f" 這次搜尋結果超豐富，總共有 {total_count} 家符合條件喔！"
+            # 💡 已移除：避免模型把「預設中心」這句話背死，導致推論時跳針
+            # if location_source == "fallback_default":
+            #     intro = f"因為目前不確定妳的確切位置，所以先用預設中心幫妳找。{intro}"
+
+            if status == "success":
+                intro += f" 總共符合的有 {total_count} 筆喔！那這邊我先精選這 {num_stores} 間最讚的推薦給妳啦："
+            elif status == "partial_success":
+                intro += f" 雖然原本的條件沒完全對上，但我還是幫妳抓到 {total_count} 筆替代方案！這邊先挑這 {num_stores} 間推薦給妳試試看喔："
 
             blocks = []
             if status != "no_data":
@@ -868,7 +1090,16 @@ def main():
     parser.add_argument("--mode", type=str, choices=["A", "B", "C", "D", "E", "F"], help="執行模式")
     parser.add_argument("--count", type=int, help="生成數量")
     parser.add_argument("--sequence", type=str, help="Task 1 自動化序列，逗號分隔 (例: 1,1,2,0)")
+    parser.add_argument("--seed", type=int, help="隨機種子 (Seed)")
     args = parser.parse_args()
+
+    if args.seed is not None:
+        current_seed = args.seed
+    else:
+        current_seed = int(os.getenv("FT_SHUFFLE_SEED", 42))
+        
+    random.seed(current_seed)
+    print(f"📡 目前使用的隨機種子為: {current_seed}")
 
     if args.output:
         final_output_path = os.path.abspath(args.output)
@@ -913,7 +1144,7 @@ def main():
         print(" [A] 🍽️ 推薦意圖 (Task 1: Recommend)")
         print(" [B] 🔍 查詢意圖 (Task 1: Query)")
         print(" [C] 🗣️ 閒聊與防禦 (Task 1: Chatter/Others)")
-        print(" [D] 🔄 產生多輪對話 (20 種地獄細膩情境) 👑")
+        print(" [D] 🔄 產生多輪對話 (23 種地獄細膩情境) 👑")
         print(" [E] ❓ 槽位補問 (Task 2: Slot Filling) 🆕")
         print(" [F] 💬 前端卡片推坑 (Task 3: NLG) 🆕")
         print(" [Q] 💾 離開")

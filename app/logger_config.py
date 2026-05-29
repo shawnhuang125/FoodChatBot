@@ -20,7 +20,8 @@ def setup_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     
     if not logger.hasHandlers():
-        logger.setLevel(LOG_LEVEL)
+        # 讓 logger 實體可以接收所有級別的日誌
+        logger.setLevel(logging.DEBUG)
         
         # 關鍵點：修改 Formatter 的時間轉換函數
         formatter = logging.Formatter(
@@ -30,13 +31,15 @@ def setup_logger(name: str) -> logging.Logger:
         # 告訴 logging 模組：不要用系統時間，用我指定的台灣時間
         formatter.converter = taiwan_time
 
-        # 輸出到檔案
+        # 輸出到檔案 (記錄所有詳細的 DEBUG 日誌)
         file_handler = logging.FileHandler(LOG_FILE_PATH, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-        # 輸出到終端機
+        # 輸出到終端機 (依照環境變數，通常為 INFO，只顯示重要流程)
         console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 

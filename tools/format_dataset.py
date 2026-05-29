@@ -51,6 +51,7 @@ def process_dataset(input_path: str, output_path: str) -> bool:
         # 暫存區：用來裝「當下這一輪」正在發生的零件
         current_user = None
         current_json = None
+        current_context_time = None
         
         # turn_counter 用來給歷史紀錄上 ID
         turn_counter = 1
@@ -61,6 +62,9 @@ def process_dataset(input_path: str, output_path: str) -> bool:
             
             if role == "system":
                 continue
+                
+            elif role == "context_date":
+                current_context_time = content
                 
             elif role == "user":
                 # 新的一輪開始了
@@ -84,11 +88,15 @@ def process_dataset(input_path: str, output_path: str) -> bool:
                         if t.get("query_id"): turn_obj["query_id"] = t["query_id"]
                         dialog_state.append(turn_obj)
 
-                    combined_system = (
-                        f"## System Instruction\n{cleaned_instruction}\n\n"
+                    sections = [
+                        f"## System Instruction\n{cleaned_instruction}",
                         f"## Dialog Context (History)\n{json.dumps(dialog_state, ensure_ascii=False, indent=2)}"
-                    )
+                    ]
+                    if current_context_time:
+                        sections.append(f"## Context Information\n- Current Date/Time: {current_context_time}")
                     
+                    combined_system = "\n\n".join(sections)
+
                     # 2. 構建 Messages 陣列
                     training_messages = [{"role": "system", "content": combined_system}]
                     
@@ -130,11 +138,15 @@ def process_dataset(input_path: str, output_path: str) -> bool:
                         # Task 3 當下還沒有 response_output，所以只放 user_input
                         dialog_state.append({"turn_id": turn_counter, "user_input": current_user})
 
-                    combined_system = (
-                        f"## System Instruction\n{cleaned_instruction}\n\n"
+                    sections = [
+                        f"## System Instruction\n{cleaned_instruction}",
                         f"## Dialog Context (History)\n{json.dumps(dialog_state, ensure_ascii=False, indent=2)}"
-                    )
+                    ]
+                    if current_context_time:
+                        sections.append(f"## Context Information\n- Current Date/Time: {current_context_time}")
                     
+                    combined_system = "\n\n".join(sections)
+
                     # 2. 構建 Messages 陣列
                     training_messages = [{"role": "system", "content": combined_system}]
                     

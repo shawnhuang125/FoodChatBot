@@ -4,6 +4,7 @@ import asyncio
 import json
 import httpx
 import logging
+from datetime import datetime
 from typing import Dict, Optional, Tuple, Set, List, Any
 from contextlib import asynccontextmanager
 
@@ -53,6 +54,7 @@ class GlobalState:
     manager = MemoryManager()
     builder = MessageBuilder()
     logger = setup_logger("main")
+    pid = os.getpid()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,9 +121,8 @@ def get_required_fields(semantic_dict: dict) -> Set[str]:
             for cond in node.get("conditions", []):
                 extract_keys_from_logic(cond)
         else:
-            for k in node.keys():
-                if k not in ["op", "conditions"]:
-                    needed_keys.add(k)
+            if "field" in node:
+                needed_keys.add(node["field"])
                     
     extract_keys_from_logic(semantic_dict.get("logic_tree", {}))
     return needed_keys
@@ -143,10 +144,12 @@ async def chat(request: Request):
     if not user_id:
         raise HTTPException(status_code=400, detail="Missing sid")
 
+    GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] 收到 Request: {json.dumps(data, ensure_ascii=False)}")
+
     try:
         request_queue.put_nowait(user_id)
     except asyncio.QueueFull:
-        GlobalState.logger.warning(f"[{user_id}] 佇列已滿")
+        GlobalState.logger.warning(f"[PID:{GlobalState.pid}] [SID:{user_id}] 佇列已滿")
         raise HTTPException(status_code=503, detail="伺服器忙碌中")
 
     async def generate():
@@ -156,27 +159,45 @@ async def chat(request: Request):
         user_mem = None
         turn = None
         response_text = ""
+        queue_cleared = False
 
         try:
             async with semaphore:
+                if not request_queue.empty():
+                    await request_queue.get()
+                    request_queue.task_done()
+                    queue_cleared = True
+
                 loop = asyncio.get_running_loop()
                 user_mem = await loop.run_in_executor(None, GlobalState.manager.get_user_memory, user_id)
                 turn = user_mem.new_turn()
                 turn.user_input = str(data.get("text", ""))
+                
+                current_time = data.get("time")
+                if not current_time:
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] 使用者輸入: {turn.user_input}")
 
                 # --- Task 1: 語意解析 ---
                 task = "task1"
                 messages_task1, _ = await loop.run_in_executor(
                     None, lambda: GlobalState.builder.build_messages(
-                        memory=user_mem, mode=task, system_prompt=TASK_PROMPTS[task]
+                        memory=user_mem, mode=task, system_prompt=TASK_PROMPTS[task], context_time=current_time
                     )
                 )
 
-                GlobalState.logger.info(f"[{user_id}] === TASK 1 推論中 ===")
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] === TASK 1 推論中 ===")
+                GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 1 Message Builder 輸出:\n{json.dumps(messages_task1, indent=2, ensure_ascii=False)}")
                 raw_json_output = ""
+                print(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 1 即時推論: ", end="", flush=True)
                 async for chunk in infer(messages_task1, mode=task):
                     raw_json_output += chunk
+                    print(chunk, end="", flush=True)
+                print() # 推論結束後換行
                 
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 1 模型原始輸出:\n{raw_json_output}")
+
                 # 魯棒性高的 JSON 解析
                 try:
                     clean_json = raw_json_output.replace("```json", "").replace("```", "").strip()
@@ -186,10 +207,11 @@ async def chat(request: Request):
                     semantic_dict = {}
 
                 turn.json_output = json.dumps(semantic_dict, ensure_ascii=False)
-                GlobalState.logger.info(f"[{user_id}] 結構化結果: {turn.json_output}")
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 1 解析後結構化結果:\n{turn.json_output}")
 
                 # --- 決定路徑：Task 2 (追問) 或 Task 3 (檢索) ---
                 datas = None
+                is_search_error = False
                 if not semantic_dict or semantic_dict.get("follow_up") is True:
                     task = "task2"
                 else:
@@ -205,11 +227,14 @@ async def chat(request: Request):
                         json_payload = {
                             "s_id": user_id,
                             "u_time": data.get("time"),
-                            "u_lat": data.get("lat"),
-                            "u_lng": data.get("lng"),
+                            "user_location": {
+                                "lat": data.get("gps", {}).get("lat"),
+                                "lng": data.get("gps", {}).get("lng")
+                            },
                             **semantic_dict
                         }
 
+                    GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 3 發送 API 請求: URL={api_url}, Method={method}, Payload={json.dumps(json_payload, ensure_ascii=False) if method == 'POST' else None}")
                     # --- 執行資料檢索 ---
                     try:
                         if method == "GET":
@@ -239,15 +264,20 @@ async def chat(request: Request):
 
                             # 軌道 2：決定餐廳需要抓取的欄位，並清洗列表
                             needed_keys = get_required_fields(semantic_dict)
-                            GlobalState.logger.info(f"[{user_id}] 餐廳動態與常數欄位: {needed_keys}")
+                            GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] 餐廳動態與常數欄位: {needed_keys}")
                             
                             cleaned_restaurants = []
                             
-                            # 準備給前端 GUI 渲染用的 Metadata
-                            gui_metadata = metadata.copy()
+                            # 準備給前端 GUI 渲染用的 Metadata (只保留 type 與 pid)
+                            gui_metadata = {}
                             
                             if results:
                                 pids = [item.get("id") for item in results if "id" in item]
+                                
+                                # 💡 新增：將 PID 寫入 Log 並顯示於終端機
+                                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] 推薦店家 PIDs: {pids}")
+                                print(f"\n📍 [推薦店家 IDs]: {pids}")
+                                
                                 gui_metadata["type"] = "pid"
                                 gui_metadata["pid"] = pids
                                 
@@ -259,8 +289,9 @@ async def chat(request: Request):
                                             extracted[path_key] = val
                                     cleaned_restaurants.append(extracted)
 
-                            # 💡 順手修正：補上 __METADATA__ 前綴，確保 test_gui.py 能正確捕捉隱藏資訊 (無論有無店家都會回傳)
-                            yield f"{json.dumps(gui_metadata, ensure_ascii=False)}\n"
+                            # 💡 確保 test_gui.py 能正確捕捉隱藏資訊 (只回傳需要的欄位)
+                            if gui_metadata:
+                                yield f"{json.dumps(gui_metadata, ensure_ascii=False)}\n"
 
                             # 最終合併：組合出完美的 LLM Context，即使沒有店家，LLM 也能根據 status 等 metadata 回應
                             final_context = {
@@ -268,40 +299,53 @@ async def chat(request: Request):
                                 "restaurants": cleaned_restaurants
                             }
                             datas = json.dumps(final_context, indent=2, ensure_ascii=False)
+                            GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] Task 3 API 檢索與清洗結果:\n{datas}")
                         else:
-                            datas = json.dumps({"error": f"Upstream API error {resp.status_code}"})
+                            is_search_error = True
                     except Exception as e:
-                        GlobalState.logger.error(f"[{user_id}] 檢索失敗: {e}")
-                        datas = json.dumps({"error": "Retrieval failed"})
+                        GlobalState.logger.error(f"[PID:{GlobalState.pid}] [SID:{user_id}] 檢索失敗: {e}")
+                        is_search_error = True
+
+                if is_search_error:
+                    response_text = "真的很不好意思啦～目前系統好像有點秀逗連不上，要不要等等再試一次看看？"
+                    yield response_text
+                    turn.response_output = response_text
+                    GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] 檢索失敗，跳過 Task 3 推論，直接回傳寫死訊息")
+                    return
 
                 # --- Task 2/3: 生成最終回覆 ---
-                GlobalState.logger.info(f"[{user_id}] === {task.upper()} 推論中 ===")
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] === {task.upper()} 推論中 ===")
                 messages_final, _ = await loop.run_in_executor(
                     None, lambda: GlobalState.builder.build_messages(
                         datas=datas if task == "task3" else None,
                         memory=user_mem,
                         mode=task,
-                        system_prompt=TASK_PROMPTS[task]
+                        system_prompt=TASK_PROMPTS[task],
+                        context_time=current_time
                     )
                 )
-                print(messages_final)
+                GlobalState.logger.debug(f"[PID:{GlobalState.pid}] [SID:{user_id}] {task.upper()} Message Builder 輸出:\n{json.dumps(messages_final, indent=2, ensure_ascii=False)}")
 
+                print(f"[PID:{GlobalState.pid}] [SID:{user_id}] {task.upper()} 即時推論: ", end="", flush=True)
                 async for chunk in infer(messages_final, mode=task):
                     response_text += chunk
+                    print(chunk, end="", flush=True)
                     yield chunk
+                print() # 推論結束後換行
                 
                 turn.response_output = response_text
-                GlobalState.logger.info(f"[{user_id}] 生成結束")
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] {task.upper()} 模型輸出結果:\n{response_text}")
+                GlobalState.logger.info(f"[PID:{GlobalState.pid}] [SID:{user_id}] 生成結束")
 
         except asyncio.CancelledError:
             if turn: turn.response_output = response_text + " [已終止]"
-            GlobalState.logger.warning(f"[{user_id}] 任務取消")
+            GlobalState.logger.warning(f"[PID:{GlobalState.pid}] [SID:{user_id}] 任務取消")
         except Exception as e:
-            GlobalState.logger.error(f"[{user_id}] 系統故障: {e}", exc_info=True)
+            GlobalState.logger.error(f"[PID:{GlobalState.pid}] [SID:{user_id}] 系統故障: {e}", exc_info=True)
             yield f"\n[系統錯誤]: {str(e)}"
         finally:
             GlobalState.active_tasks.pop(user_id, None)
-            if not request_queue.empty():
+            if not queue_cleared and not request_queue.empty():
                 await request_queue.get()
                 request_queue.task_done()
 

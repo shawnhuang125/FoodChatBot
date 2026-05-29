@@ -34,15 +34,21 @@ class MessageBuilder:
 
         return dialog_state
     
-    def build_messages(self, memory, system_prompt: str = None, mode: str = None, datas=None):
+    def build_messages(self, memory, system_prompt: str = None, mode: str = None, datas=None, context_time: str = None):
         """ 生成送往模型端點前的最終標準 Message JSON Array 結構 """
         dialog_state = self.build_dialog_state(memory, mode)
         
         # 組合 System Prompt 與對話歷史 (JSON 格式)
-        combined_system_content = (
-            f"## System Instruction\n{system_prompt}\n\n"
-            f"## Dialog Context (History)\n{json.dumps(dialog_state, ensure_ascii=False, indent=2)}"
-        )
+        sections = [f"## System Instruction\n{(system_prompt or '').strip()}"]
+        
+        if dialog_state:
+            sections.append(f"## Dialog Context (History)\n{json.dumps(dialog_state, ensure_ascii=False, indent=2).strip()}")
+            
+        if context_time:
+            sections.append(f"## Context Information\n- Current Date/Time: {context_time.strip()}")
+            
+        sections = [s.strip() for s in sections if s]
+        combined_system_content = "\n\n".join(sections)
         
         messages = [
             {
