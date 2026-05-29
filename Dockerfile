@@ -4,6 +4,10 @@ FROM python:3.10-slim
 # 設定工作目錄
 WORKDIR /app
 
+# 💡 核心修正：強制 Python 即時輸出日誌到標準輸出（stdout），不進行記憶體緩衝
+# 這樣你在 docker logs 才能即時看到「傳送出去與接收進來」的完整封包數據！
+ENV PYTHONUNBUFFERED=1
+
 # 先複製依賴清單並安裝，利用 Docker 快取機制加速後續建置
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -15,5 +19,4 @@ COPY . .
 EXPOSE 5000
 
 # 啟動指令 (假設你的檔案叫 main.py，入口點是 combined_app)
-# 改成這樣（拿掉 workers 參數，預設就是單一進程）：
-CMD ["uvicorn", "main:combined_app", "--host", "0.0.0.0", "--port", "5000", "--loop", "uvloop"]
+CMD ["python", "main.py"]
