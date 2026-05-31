@@ -11,6 +11,12 @@
 - Repository Pattern: 完善的資料存取層分離，支援 Mock Data 與真實 DB (MySQL/Qdrant) 的無縫切換。
 
 - Dry Run Mode: 支援僅生成 SQL 與預覽向量結果但不執行查詢的模式，方便 Debug 與前端預覽。
+- **專案功能**
+- 提供:"使用者目前位置"之地理過濾的附近搜尋功能
+- 提供: 透過時間過濾找尋在該時段有營業的店家
+- 提供: "使用者指定'行政區/街/路/鄉/"只要在店家地址字串中有出現的就可以被搜尋到
+- 提供: 透過店家名稱查詢特定店家,
+- 提供: 提供透過食物種類,菜系,軟服務標籤(只要評論中有提到的)進行查詢美食店家
 
 - **專案結構**
 ```
@@ -113,114 +119,3 @@ python run.py
 ```
 伺服器將預設運行於 http://127.0.0.1:5003
 
-## API Testing Guide (測試指南)
-- 本系統目前支援 Mock Mode (模擬模式)，即便沒有安裝真實資料庫也能進行測試。
-
-- Endpoint
-- URL: POST /place_search/search
-
-- Content-Type: application/json
-
-- 測試情境範例 (Test Cases)
-- 可以使用 Postman 或 curl 測試以下情境。
-
-- **情境一：混合搜尋 (Hybrid Search)**
-- 描述：找「台南」的「牛肉湯」，且口感要「鮮甜」，評分 > 4.0。 觸發機制：flavor 欄位觸發向量搜尋，address 與 rating 觸發 SQL。
-
-```
-
-{
-    "main_intent": "recommend",
-    "info_needed": ["name", "address", "rating"],
-    "vector_keywords": ["鮮甜"],
-    "logic_tree": {
-        "op": "AND",
-        "conditions": [
-            { "address": { "cmp": "LIKE", "value": "%台南%" } },
-            { "merchant_category": { "cmp": "=", "value": "牛肉湯" } },
-            { "rating": { "cmp": ">=", "value": 4.0 } },
-            { "flavor": { "cmp": "=", "value": "鮮甜" } }
-        ]
-    }
-}
-```
-- **情境二：純向量搜尋 (Vector Only)**
-- 描述：只在意口感「濃郁」或「酥脆」，不在意地點。 觸發機制：vector_needed 為 True，SQL WHERE 僅包含 ID Filter。
-
-```
-
-{
-    "main_intent": "recommend",
-    "info_needed": ["name", "review_text"],
-    "logic_tree": {
-        "op": "OR",
-        "conditions": [
-            { "flavor": { "cmp": "=", "value": "濃郁" } },
-            { "flavor": { "cmp": "=", "value": "酥脆" } }
-        ]
-    }
-}
-```
-- **情境三：複雜邏輯過濾 (Complex SQL)**
-- 描述：找「中西區」的店，要是「老店」或者評分高於 4.2。 觸發機制：巢狀 AND / OR 邏輯解析。
-
-```
-
-{
-    "main_intent": "filter",
-    "info_needed": ["name", "service_tags"],
-    "logic_tree": {
-        "op": "AND",
-        "conditions": [
-            { "address": { "cmp": "LIKE", "value": "%中西區%" } },
-            {
-                "op": "OR",
-                "conditions": [
-                    { "service_tags": { "cmp": "LIKE", "value": "%老店%" } },
-                    { "rating": { "cmp": ">", "value": 4.2 } }
-                ]
-            }
-        ]
-    }
-}
-```
-- 回傳格式說明 (Response)
-- 系統會回傳包含「向量檢索詳情」、「生成的 SQL」與「最終模擬結果」的完整資訊：
-
-```
-
-{
-    "status": "success",
-    "mode": "dry_run_with_mock_data",
-    "data": {
-        "vector_search_info": {
-            "keywords": ["鮮甜"],
-            "found_ids": [201, 206],
-            "details": [...]
-        },
-        "generated_query": {
-            "sql": "SELECT ... FROM ... WHERE p.address LIKE %(p0)s AND p.id IN (201,206) ...",
-            "params": { "p0": "%台南%" }
-        },
-        "final_results": [
-            { "id": 206, "name": "文章牛肉湯", "rating": 4.6, ... }
-        ]
-    }
-}
-
-```
-
-- **切換至真實資料庫**
-- 若要切換至 Production 模式，請修改 app/repositories/ 下的 Repository 初始化參數：
-
-- 開啟 app/routes/place_search_bp.py
-
-- 修改初始化參數 use_mock=False：
-
-```
-
-vector_repo = VectorRepository(use_mock=False)
-rdbms_repo = RdbmsRepository(use_mock=False)
-
-```
-- 確保 .env 中的資料庫連線資訊設定正確。
