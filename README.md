@@ -32,6 +32,7 @@ Search_api/
 │   │   └── place_search_bp.py
 │   ├── services/             # 核心業務邏輯
 │   │   ├── hybrid_sql_builder_service_v2.py  # SQL 生成器
+│   │   ├── hard_filtering_service.py         #　時間之店家硬性過濾
 │   │   └── vector_service.py                 # 向量服務 Facade
 │   ├── repositories/         # 資料存取層
 │   │   ├── rdbms_repository.py   # MySQL/MariaDB I/O操作
