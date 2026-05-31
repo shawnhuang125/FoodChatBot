@@ -1,7 +1,7 @@
 # AI Hybrid Search API (RAG Backend)
 - 這是一個專為 AI 搜尋場景設計的後端系統。它採用 Hybrid Search (混合搜尋) 架構，能夠接收來自 LLM (Large Language Model) 解析後的 JSON 意圖，動態生成 -SQL 查詢語句，並結合向量資料庫 (Vector DB) 的語意搜尋結果，實現RAG (Retrieval-Augmented Generation) 檢索的功能。
 - **主流程**
-- `解析LLM生成之邏輯樹與查詢相關參數`-->`SQL預過濾`-->`時間過濾`-->`相似度需求檢索`-->`混和精排演篹法`-->`店家資料統一美觀處理`-->`存至REDIS`-->`輸出第一頁之店家結果內容`
+- `解析LLM生成之邏輯樹與查詢相關參數`-->`SQL地理預過濾`-->`時間過濾`-->`相似度需求檢索`-->`混和精排演篹法`-->`店家資料統一美觀處理`-->`存至REDIS`-->`輸出第一頁之店家結果內容`
 
 - **專案特色**
 - Intent-Driven: 直接處理 AI 輸出的結構化意圖 (Logic Tree)。
