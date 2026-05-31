@@ -5,6 +5,7 @@ from app.utils.performance_tracker import log_performance_to_csv
 from app.utils.data_formatter import format_response_data   # 格式化搜尋結果與補上照片
 from app.config import Config
 from app.utils.app_logger import logger
+from app.utils.time_checker import is_open_now
 from app.utils.quality_checker import check_search_status
 from app.utils.quality_checker import evaluate_search_quality
 from app.utils.quality_checker import analyze_search_results
@@ -72,6 +73,7 @@ async def generate_query_and_search(
         vector_service = request.app.state.vector_service
         rdbms_repo    = request.app.state.rdbms_repo
         session_cache = request.app.state.session_cache  # key 名稱需與 __init__.py 中 app.state.session_cache 一致
+        hard_filtering_service = request.app.state.hard_filtering_service
 
         # 獲取並檢查資料
         if not ai_to_api_data:
@@ -116,27 +118,49 @@ async def generate_query_and_search(
                 logger.warning(f"[Search][SID: {s_id}] SQL 查無資料，直接回傳")
                 search_status = check_search_status([], plan, total_count=0)
                 quality_label, is_fallback, ai_hint = evaluate_search_quality(
-                    [],
-                    {"status": "no_data", "message": ""},
-                    rdb_info=rdb_info,
-                    plan=plan
+                    [], {"status": "no_data", "message": ""}, rdb_info=rdb_info, plan=plan
                 )
                 return {
-                    "s_id": s_id,
-                    "status": quality_label,
+                    "s_id": s_id, "status": quality_label,
                     "data": {
-                        "is_fallback": is_fallback,
-                        "ai_behavior_hint": ai_hint,
-                        "search_status": search_status,
+                        "is_fallback": is_fallback, "ai_behavior_hint": ai_hint, "search_status": search_status,
                         "vector_search_info": {},
                         "pagination": {"current_page": 1, "total_pages": 0, "total_results": 0, "page_size": Config.PAGE_SIZE},
                         "final_results": []
                     }
                 }
 
+            logger.info(f"[Search][SID: {s_id}] SQL 原始命中 {total_count} 筆")
+
+            # ─── 【營業時間硬過濾與 total_count 更新】 ──────────────────────────
+            if plan.get("need_time", False):
+                target_time = plan.get("target_time") 
+                
+                # 呼叫 Service 執行過濾（Service 內部會自動處理從幾筆變幾筆的 logger.info）
+                db_results = hard_filtering_service.filter_by_business_hours(db_results, target_time=target_time, s_id=s_id)
+                
+                # 將全域計數與 rdb_info 同步更新為硬過濾後的實際總數
+                total_count = len(db_results)
+
+                plan["need_time"] = False
+                
+                if total_count == 0:
+                    logger.warning(f"[Search][SID: {s_id}] 營業時間過濾後有效店家數為 0，中斷後續搜尋")
+                    return {
+                        "s_id": s_id, "status": "no_data",
+                        "data": {
+                            "is_fallback": True,
+                            "ai_behavior_hint": "附近有符合條件的店家，但目前均未營業。",
+                            "search_status": "no_match_time",
+                            "vector_search_info": {},
+                            "pagination": {"current_page": 1, "total_pages": 0, "total_results": 0, "page_size": Config.PAGE_SIZE},
+                            "final_results": []
+                        }
+                    }
+
+            # 更新 RDBMS 指標分析所需的明細
             rdb_info["total_count"] = total_count
             rdb_info["status"] = "exact_one_match" if total_count == 1 else "success"
-            logger.info(f"[Search][SID: {s_id}] SQL 命中 {total_count} 筆")
 
 
             # --- 執行搜尋與權重排序 ---
@@ -171,15 +195,11 @@ async def generate_query_and_search(
                 rdb_info
             )
 
-
             session_data = {
                 "results": all_ranked_results,
                 "meta_analysis": {
-                    "status": quality_label,
-                    "is_fallback": is_fallback,
-                    "ai_behavior_hint": ai_hint,
-                    "search_status": search_status,
-                    "vector_search_info": vector_search_info
+                    "status": quality_label, "is_fallback": is_fallback, "ai_behavior_hint": ai_hint,
+                    "search_status": search_status, "vector_search_info": vector_search_info
                 }
             }
 
@@ -194,7 +214,7 @@ async def generate_query_and_search(
             # --- 存入 Redis 並取得第一頁 (統一門面) ---
             # 此方法內建了：生成 6 碼隨機 SSID -> 序列化並儲存至 Redis -> 切出第 1 頁結果
             _, first_page_results, pagination_meta = await session_cache.create_session_and_get_first_page(
-                all_ranked_results,
+                all_ranked_results, 
                 page_size=Config.PAGE_SIZE
             )
 

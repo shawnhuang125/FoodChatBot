@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.db import get_async_db_pool, close_all_connections
+from app.services.hard_filtering_service import HardFilteringService
 from app.routes import api_router
 from app.utils.app_logger import app_log_manager, logger
 
@@ -73,6 +74,9 @@ async def startup_event():
 
         # HybridSQLBuilder：解析 AI 傳入的 JSON intent，動態組裝 SQL 語句
         app.state.builder = HybridSQLBuilder()
+
+        # 服務預載
+        app.state.hard_filtering_service = HardFilteringService()
 
         # RdbmsRepository：封裝 MySQL 非同步查詢邏輯；use_mock=False 代表連接真實資料庫
         app.state.rdbms_repo = RdbmsRepository(use_mock=False)
