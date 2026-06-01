@@ -78,13 +78,22 @@ class VectorService:
                 if not clean_item: 
                     continue
                     
+                # 🟢 補回關鍵行：宣告特徵 ID，供下方權重對齊使用
                 feat_id = f"{field_key}_{clean_item}"
+                
                 if field_key == "cuisine":
                     query_sentence = f"主打菜系為{clean_item}風味的餐廳"
                 elif field_key == "food_type":
-                    query_sentence = f"主打食物種類為{clean_item}的餐廳"
+                    # 🟢 核心微調：引入語意擴展，將單字與店面詞、食物詞自然融合成一個強特徵矩陣
+                    # 這樣當 clean_item 是 "麵" 時，會變成：包含麵食、麵條、麵店、麵點的餐飲小吃餐廳
+                    # 完美涵蓋所有 BGE-M3 可能對齊的詞頻，徹底解決單字語意塌陷！
+                    if len(clean_item) == 1:  # 針對像 "麵"、"飯" 這種單字做特殊語意加強
+                        query_sentence = f"主打{clean_item}食、{clean_item}類、{clean_item}店的餐飲餐廳與小吃攤"
+                    else:
+                        query_sentence = f"主打食物種類為{clean_item}、{clean_item}料理的餐飲餐廳"
+                        
                 elif field_key in ["service_tags", "facility_tags"]:
-                    query_sentence = f"有提供{clean_item}"
+                    query_sentence = f"有提供{clean_item}的所有餐廳"
                 else:
                     query_sentence = clean_item
                 
@@ -92,20 +101,14 @@ class VectorService:
                 flat_features.append((field_key, query_sentence, clean_item)) 
                 task_weights.append(float(weight))
 
-        # 救援 logic_tree 結構
-        if not flat_features and "logic_tree" in plan:
-            ltree = plan["logic_tree"]
-            if isinstance(ltree, dict) and ltree.get("field") and ltree.get("value"):
-                f_key = ltree["field"]
-                for item in ltree["value"]:
-                    flat_features.append((f_key, f"符合{item}的特徵描述", str(item).strip()))
-                    task_weights.append(0.8)
+
 
         num_semantic_dims = len(flat_features)
         rdbms_ids = [row.get("id") for row in db_results] 
         db_map = {str(row.get("id")): row for row in db_results}
         
-        # 🛡️ 鋼鐵初始化：徹底斷絕 1.0 灌水殘留，未命中的底分一律就是 0.0 背景噪音
+        # 徹底斷絕 1.0 灌水殘留，未命中的底分一律就是 0.0 背景噪音，
+        # 確保相似度回傳的內容如果該家店沒有那就一定是0.0,讓底造維持乾淨
         restaurant_features = {str(rid): [] for rid in rdbms_ids}
 
         vector_needed = plan.get("vector_needed", False)
@@ -119,8 +122,26 @@ class VectorService:
             logical_op = "OR"  
             for rid in rdbms_ids:
                 restaurant_features[str(rid)] = [1.0]
+
+            # 利用計時器包裹，拉取 Qdrant 原始 Payload DTO 補齊評論摘要
+            q_start = time.perf_counter()
+            all_vector_results = await self.repo.get_dtos_by_ids(rdbms_ids=rdbms_ids)
+            q_end = time.perf_counter()
+            info["qdrant_time"] = q_end - q_start
+            
         else:
-            logger.info(f"[Vector Service][SID: {s_id}] ======= 啟動多通路語意召回通道 =======")
+            # 印出有幾個通道與各自的關鍵字資訊
+            # flat_features 的結構是 (field_key, query_sentence, clean_item)
+            channels_info = [
+                f"[{feat[0]} -> 關鍵字: '{feat[2]}' (查詢句: '{feat[1]}')]" 
+                for feat in flat_features
+            ]
+            logger.info(
+                f"[Vector Service][SID: {s_id}] ======= 啟動多通路語意召回通道 ======="
+                f"\n總共派發通道數: {num_semantic_dims} 個"
+                f"\n詳細通道清單:\n" + "\n".join(channels_info)
+            )
+
             query_sentences = [feat[1] for feat in flat_features]
             query_vectors = self.model.encode(query_sentences, normalize_embeddings=True).tolist()
 
@@ -131,11 +152,24 @@ class VectorService:
                     rdbms_ids=rdbms_ids
                 )
                 all_vector_results.extend(vector_results)
+
                 
                 current_score_map = {str(v.id): float(v.score) for v in vector_results}
                 for rid in rdbms_ids:
                     # 💡 沒戳到 Qdrant 的人，鐵律給予 0.0，杜絕高分污染
-                    score = current_score_map.get(str(rid), 0.0)
+                    raw_score = current_score_map.get(str(rid), 0.0)
+
+                    # =================================================================
+                    # 🟢 核心修改：菜系/食物種類特徵的「軟性局部屏蔽 (Soft Masking)」
+                    # =================================================================
+                    # 設定一個寬鬆的特徵噪音臨界值。大於它代表「語意高度相關」(如 日本料理 與 日式料理)
+                    # 小於它代表「基本上是跨菜系的語意塌陷雜訊」(如 搜尋義式 卻撈到 壽司)
+                    if f_key in ["cuisine", "food_type"]:
+                        # 0.68 是一個完美的軟隔離線，能包容同義詞，但能切斷完全無關的日義跨界污染
+                        score = float(raw_score) if float(raw_score) >= 0.68 else 0.0
+                    else:
+                        score = float(raw_score)
+
                     restaurant_features[str(rid)].append(score)
 
             q_end = time.perf_counter()
@@ -212,7 +246,17 @@ class VectorService:
             return []
 
         raw_vector_results = kwargs.get("vector_results", [])
-        summary_map = {str(v.id): v.review_summary for v in raw_vector_results if hasattr(v, 'review_summary')}
+        # 改用防禦性 for 迴圈組裝映射表，防止多通道全量召回時空字串覆蓋有效數據
+        summary_map = {}
+        for v in raw_vector_results:
+            v_id_str = str(v.id)
+            v_summary = getattr(v, "review_summary", "") or ""
+            
+            # 只有當這家餐廳還沒存過摘要，或者新拿到的摘要長度大於原本存的長度，才允許寫入/更新
+            if v_id_str not in summary_map or len(v_summary) > len(summary_map[v_id_str]):
+                # 確保存進去的不是純空格或預設的無內容字串
+                if v_summary.strip() and v_summary != "暫無精選評論摘要":
+                    summary_map[v_id_str] = v_summary
         
         all_counts = [row.get('user_ratings_total', 0) for row in db_map.values()]
         max_reviews_log = math.log1p(max(all_counts)) if all_counts and max(all_counts) > 0 else 1.0

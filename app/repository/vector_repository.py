@@ -40,7 +40,7 @@ class VectorRepository:
         rdbms_ids: List[Any]
     ) -> List[VectorSearchResult]:
         """
-        純語意特徵招回通道：取消硬性過濾 Payload，僅實施 RDBMS ID 範疇限縮
+        純語意特徵召回通道：動態放行全量 ID 範疇，防止特徵分數被 limit 截斷
         """
         self.client = await self._ensure_client()
 
@@ -50,18 +50,20 @@ class VectorRepository:
             return []
         if not clean_ids: return []
 
-        # 唯一過濾條件：只鎖定 MySQL 粗篩給我們的 500 筆黃金種子
         search_filter = qmodels.Filter(
             must=[qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))]
         )
 
+        # 🟢 關鍵修正：將 limit 動態調整為與 clean_ids 一致的長度
+        dynamic_limit = len(clean_ids)
+
         try:
-            logger.info(f"[Vector Repo] 執行純特徵空間投影，候選範疇: {len(clean_ids)}")
+            logger.info(f"[Vector Repo] 執行純特徵空間投影，候選範疇: {dynamic_limit}")
             response = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector,
                 query_filter=search_filter,
-                limit=500,  # 👈 核心調整：調高上限，允許大池子裡的店家通通拿回特徵分數進行矩陣洗牌
+                limit=dynamic_limit,  # 👈 修正：不留任何死角，全量計算
                 with_payload=True
             )
             results = response.points
@@ -70,7 +72,7 @@ class VectorRepository:
                 collection_name=self.collection_name,
                 query_vector=query_vector,
                 query_filter=search_filter,
-                limit=500,
+                limit=dynamic_limit,  # 👈 修正：舊版 Search API 同步鬆綁
                 with_payload=True
             )
 

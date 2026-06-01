@@ -432,10 +432,16 @@ class HybridSQLBuilder:
         
         sql_parts.append("GROUP BY p.id")
 
-        # 6. 候選池排序與限量 (完全解耦配置)
-        # 統一採用大池子策略，確保 Redis 分頁有足夠候選店家
-        sql_parts.append(f"ORDER BY {SQLSetting.CANDIDATE_POOL_ORDER_BY}")
-        sql_parts.append(f"LIMIT {SQLSetting.CANDIDATE_POOL_LIMIT}")
+        # 判斷標準：如果 logic_tree 有條件，但解析出來的 where_sql 為空，代表是「純向量模式」
+        is_pure_vector_mode = bool(logic_tree) and not where_sql
+
+        if is_pure_vector_mode:
+            logger.info(f"[SQL Builder][SID: {s_id}] 🎯 偵測為【純向量檢索模式】。撤銷 SQL LIMIT 限制，執行全量資料召回。")
+        else:
+            # 有傳統 SQL 篩選條件時，維持原有的 500 大池子策略
+            sql_parts.append(f"ORDER BY {SQLSetting.CANDIDATE_POOL_ORDER_BY}")
+            sql_parts.append(f"LIMIT {SQLSetting.CANDIDATE_POOL_LIMIT}")
+            logger.info(f"[SQL Builder][SID: {s_id}] 維持標準混合模式：LIMIT {SQLSetting.CANDIDATE_POOL_LIMIT}")
 
         final_sql = " ".join(sql_parts)
 
