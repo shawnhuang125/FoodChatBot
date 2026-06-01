@@ -470,8 +470,16 @@ class HybridSQLBuilder:
                 if child_sql:
                     child_sqls.append(child_sql)
             
-            if not child_sqls: return None
-            if len(child_sqls) == 1: return child_sqls[0]
+            if not child_sqls: 
+                return None
+
+            if len(child_sqls) == 1 or operator in ["NO_OP", "NONE"]:
+                # 如果有複數條件卻給 NO_OP，安全起見預設採用 AND 聯結，或者直接取第一個
+                if len(child_sqls) > 1:
+                    logger.warning(f"[SQL Builder][SID: {s_id}] 偵測到 NO_OP 卻包含多個子條件，系統將預設降維使用 AND 聯結")
+                    return f"({(' AND ').join(child_sqls)})"
+                return child_sqls[0]
+            
             return f"({(f' {operator} ').join(child_sqls)})"
 
         # =================================================================
