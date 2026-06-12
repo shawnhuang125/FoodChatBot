@@ -38,6 +38,12 @@ def check_env():
 # ==========================================
 # 2. 資料處理邏輯 (對齊 Data-Centric AI 精神)
 # ==========================================
+import uuid
+
+def uuid_to_uint64(uuid_str):
+    """將 UUID 字串轉為 64-bit 整數"""
+    return uuid.UUID(uuid_str).int & ((1 << 64) - 1)
+
 def prepare_data_for_import(file_path):
     """讀取 JSON 並合成與查詢端 100% 對齊的高品質 Passage"""
     if not os.path.exists(file_path):
@@ -53,10 +59,17 @@ def prepare_data_for_import(file_path):
             if not isinstance(tags, list): return []
             return [str(t).strip() for t in tags if str(t).lower() != 'nan' and t]
 
-        # 🌟 關鍵修正：直接抓取 MySQL 原始 ID，拒絕使用 uuid4 破壞對齊
-        db_id = item.get('id')
-        if db_id is None:
-            logging.error(f"❌ 警告：資料項目缺失核心 MySQL ID，跳過此筆。項目: {item.get('name')}")
+        # 🌟 修正：改用 vdb_id 作為核心 ID，避免多筆評論 ID 重複導致覆蓋
+        vdb_id_str = item.get('vdb_id')
+        if not vdb_id_str:
+            logging.error(f"❌ 警告：資料項目缺失核心 vdb_id，跳過此筆。項目: {item.get('name')}")
+            continue
+        
+        # 將 UUID 轉為 uint64
+        try:
+            db_id = uuid_to_uint64(vdb_id_str)
+        except Exception as e:
+            logging.error(f"❌ 警告：vdb_id 轉換失敗 ({vdb_id_str})，跳過此筆。錯誤: {e}")
             continue
 
         name = str(item.get('name', '未知餐廳'))
@@ -140,7 +153,7 @@ if __name__ == "__main__":
     device = check_env()
 
     MODEL_PATH = "./m3_food_finetuned"  
-    DATA_JSON = "restaurants_20260520_20260523.json"
+    DATA_JSON = "cleaned_restaurants_20260520_20260607.json"
     COLLECTION_NAME = "restaurants_20260520"
     QDRANT_HOST = "192.168.0.201"
 

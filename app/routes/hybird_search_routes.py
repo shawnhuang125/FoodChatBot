@@ -10,6 +10,7 @@ from app.utils.quality_checker import check_search_status
 from app.utils.quality_checker import evaluate_search_quality
 from app.utils.quality_checker import analyze_search_results
 import time
+import json
 
 
 place_search = APIRouter()
@@ -135,6 +136,7 @@ async def generate_query_and_search(
             # ─── 【營業時間硬過濾與 total_count 更新】 ──────────────────────────
             if plan.get("need_time", False):
                 target_time = plan.get("target_time") 
+                logger.info(f"[DEBUG] 準備進入 HardFiltering | target_time: {json.dumps(target_time, ensure_ascii=False)}")
                 
                 # 呼叫 Service 執行過濾（Service 內部會自動處理從幾筆變幾筆的 logger.info）
                 db_results = hard_filtering_service.filter_by_business_hours(db_results, target_time=target_time, s_id=s_id)
@@ -173,6 +175,11 @@ async def generate_query_and_search(
                 plan=plan,
                 total_count=total_count
             )
+
+            # 如果 vector_service 有回傳 updated_total_count，就用它；否則維持原值
+            total_count = vector_search_info.get("updated_total_count", total_count)
+
+
             t_vector_done = time.perf_counter()
 
             # 從 vector_search_info 取得 service 內部的細分秒數

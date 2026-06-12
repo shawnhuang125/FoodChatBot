@@ -179,9 +179,7 @@ class VectorService:
             db_map=db_map,                 
             flat_features=flat_features,   
             matrix_data=restaurant_features, 
-            keywords=keywords,
-            plan=plan,
-            logical_op=logical_op,            
+            plan=plan,           
             task_weights=task_weights,
             vector_results=all_vector_results,
             logic_threshold=kwargs.get('logic_threshold', 0.60)  
@@ -190,6 +188,7 @@ class VectorService:
         r_end = time.perf_counter()
         info.update({
             "status": "completed",
+            "updated_total_count": len(final_results),
             "ranking_time": round(r_end - r_start, 4),
             "message": f"搜尋成功：已篩選出 {len(final_results)} 筆結果。"
         })
@@ -202,15 +201,17 @@ class VectorService:
         db_map: Dict[str, Any],         
         flat_features: List[Tuple[str, str, str]],  
         matrix_data: Dict[str, List[float]], 
-        keywords: Dict[str, Any],
-        plan: Dict[str, Any],
-        logical_op: str,         
+        plan: Dict[str, Any],        
         task_weights: List[float],       
         **kwargs                         
     ) -> List[Dict[str, Any]]:
 
         s_id = plan.get("s_id", "unknown")
         sort_conditions = plan.get("sort_conditions", [])
+
+        # 🟢 補上這兩行，直接終結 Pylance 報錯
+        v_logic_tree = plan.get("matrix_runtime_config", {}).get("vector_logic_tree")
+        main_intent_indices = [idx for idx, (field, _, _) in enumerate(flat_features) if field != "service_tags"]
 
        # 1. 動態權重分配
         valid_conditions = [
@@ -278,67 +279,55 @@ class VectorService:
         _extract_must_rules(logic_tree)
 
 
-        # ==========================================
-        # 🟢 階段一：主意圖硬性布林過濾 (篩選生死門)
-        # ==========================================
-        
-        # 只過濾與主意圖（cuisine, food_type 等）相關的維度索引
-        main_intent_indices = [
-            idx for idx, (field, _, _) in enumerate(flat_features) if field != "service_tags"
-        ]
-        
-        # 如果全部都是 service_tags 沒有主意圖，則全通；否則建立主意圖遮罩矩陣
-        if main_intent_indices:
-            B_matrix_main = np.zeros((S_matrix.shape[0], len(main_intent_indices)))
-            
-            for idx_mat, v_id in enumerate(v_ids_order):
-                store = db_map[v_id]
-                for b_idx, idx_dim in enumerate(main_intent_indices):
-                    field_key, _, item = flat_features[idx_dim]
-                    v_score = S_matrix[idx_mat, idx_dim] if idx_dim < S_matrix.shape[1] else 0.0
-                    db_val = str(store.get(field_key, "") or "")
-                    
-                    if field_key in must_constraints:
-                        target_keywords = must_constraints[field_key]
-                        is_string_match = any(kw in db_val for kw in target_keywords)
-                        
-                        if db_val and not is_string_match:
-                            # 🛡️ BGE-M3 語意下陷防線：字串沒對上，但語意達 0.65 判定為同義词/繁簡轉換，放行！
-                            B_matrix_main[idx_mat, b_idx] = 1.0 if v_score >= 0.65 else 0.0
-                        else:
-                            B_matrix_main[idx_mat, b_idx] = 1.0 if (is_string_match or v_score >= HARD_THRESHOLD) else 0.0
-                    else:
-                        B_matrix_main[idx_mat, b_idx] = 1.0 if v_score >= HARD_THRESHOLD else 0.0
-            
-            # 呼叫布林邏輯閘（此時只會嚴格卡住主意圖不符的店家）
-            def _evaluate_logic(expr_str, B_mat):
-                clean_expr = expr_str.strip().upper()
-                if B_mat.size == 0 or B_mat.shape[1] == 0:
-                    return np.ones(B_mat.shape[0])
-                if clean_expr == "AND":
-                    return np.all(B_mat == 1.0, axis=1).astype(float)
-                if clean_expr == "OR":
-                    return np.any(B_mat == 1.0, axis=1).astype(float)
-                
-                expr = clean_expr
-                expr = re.sub(r'\b(\d+)\b', r'B_mat[:, \1]', expr)
-                expr = re.compile(r'NOT\s+([A-Za-z0-9_:.\[\]\,\s]+)').sub(r'(1.0 - \1)', expr)
-                expr = expr.replace('AND', '*')
-                expr = expr.replace('OR', '+')
-                try:
-                    raw_gate = eval(expr, {"B_mat": B_mat, "np": np, "__builtins__": None})
-                    return (raw_gate > 0.0).astype(float)
-                except:
-                    return np.all(B_mat == 1.0, axis=1).astype(float) if "AND" in clean_expr else np.any(B_mat == 1.0, axis=1).astype(float)
+        # =================================================================
+        # 🟢 階段一：精準向量邏輯閘過濾 (替換原本 _evaluate_logic 舊代碼)
+        # =================================================================
+        if v_logic_tree and S_matrix.size > 0:
+            feat_to_idx = {(feat[0], feat[2]): idx for idx, feat in enumerate(flat_features)}
 
-            gate_mask_vector = _evaluate_logic(logical_op, B_matrix_main)
+            def evaluate_vector_tree(node: dict) -> np.ndarray:
+                if "op" in node and "conditions" in node:
+                    op_type = node.get("op", "AND").upper()
+                    child_masks = [evaluate_vector_tree(child) for child in node["conditions"]]
+                    
+                    if not child_masks:
+                        return np.ones(S_matrix.shape[0])
+                        
+                    stacked = np.column_stack(child_masks)
+                    if op_type == "AND":
+                        return np.all(stacked == 1.0, axis=1).astype(float)
+                    elif op_type == "OR":
+                        return np.any(stacked == 1.0, axis=1).astype(float)
+                    else:
+                        return np.all(stacked == 1.0, axis=1).astype(float)
+
+                f_key = node.get("field")
+                val_list = node.get("value", [])
+                if not isinstance(val_list, list): 
+                    val_list = [val_list]
+                
+                leaf_mask = np.zeros(S_matrix.shape[0])
+                for item in val_list:
+                    clean_item = str(item).strip()
+                    idx_dim = feat_to_idx.get((f_key, clean_item))
+                    
+                    if idx_dim is not None:
+                        scores_dim = S_matrix[:, idx_dim]
+                        for idx_mat, _ in enumerate(v_ids_order):
+                            v_score = scores_dim[idx_mat]
+                            if v_score >= HARD_THRESHOLD and v_score > 0.0:
+                                leaf_mask[idx_mat] = 1.0
+                            elif f_key in ["cuisine", "food_type"] and v_score >= 0.65:
+                                leaf_mask[idx_mat] = 1.0
+                                
+                return leaf_mask
+
+            gate_mask_vector = evaluate_vector_tree(v_logic_tree)
         else:
-            # 如果使用者只搜尋服務標籤、沒搜任何主意圖，則不進行生死門硬過濾
             gate_mask_vector = np.ones(len(v_ids_order))
 
         failed_count = len(v_ids_order) - int(np.sum(gate_mask_vector))
-        logger.info(f"[精排大腦][SID: {s_id}] 階段一主意圖過濾完成。總候選: {len(v_ids_order)} | 通過: {int(np.sum(gate_mask_vector))} | 被生死門硬攔截: {failed_count}")
-
+        logger.info(f"[精排大腦][SID: {s_id}] 階段一精準向量邏輯閘過濾完成。總候選: {len(v_ids_order)} | 通過: {int(np.sum(gate_mask_vector))} | 被生死門硬攔截: {failed_count}")
 
         # ==========================================
         # 🟢 階段二：對剩下的店家用 service_tags 進行加權排序

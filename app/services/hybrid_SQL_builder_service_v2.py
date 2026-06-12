@@ -1,6 +1,7 @@
 # app/services/hybrid_SQL_builder_service_v2.py
 import json
 import time
+from typing import Optional
 from app.utils.distance_utils import get_haversine_distance_sql # 匯入距離計算的SQL生成器
 # from app.utils.distance_utils import _build_haversine_where_clause
 from app.utils.performance_tracker import log_function_timing    # 函式層級耗時記錄器
@@ -107,7 +108,8 @@ class SQLSetting:
             "distance_needed": False,
             "user_location": None,
             "main_intent": json_input.get("main_intent", "query"),
-            "need_time": False
+            "need_time": False,
+            "target_time": None
         }
     
     # =================================================================
@@ -130,7 +132,7 @@ class SQLSetting:
     # --- 欄位過濾與攔截 ---
     # 強制攔截：僅限向量處理，絕對禁止生成 SQL WHERE 子句
     VECTOR_ONLY_FIELDS = {
-        "service_tags", "food_type", "cuisine"
+        "service_tags", "food_type", "cuisine", "flavor", "review_summary"
     }
 
     
@@ -139,6 +141,10 @@ class SQLSetting:
 
 
     LIKE_TEMPLATE = "%{}%"
+
+    # 時間攔截配置
+    TIME_FIELDS = {"time", "opening_hours"}
+    TIME_CMPS = {"open_at", "between"}
 
 
     @staticmethod
@@ -282,91 +288,158 @@ class HybridSQLBuilder:
         root_tree = json_input.get("logic_tree", {})
         plan["matrix_runtime_config"]["op"] = root_tree.get("op", "AND").upper()
 
-        # 接下來維持原樣呼叫掃描器
-        self._scan_for_vector_intent(root_tree, plan, s_id)
+        # 呼叫掃描器_scan_for_vector_and_time_intent()
+        self._scan_for_vector_and_time_intent(root_tree, plan, s_id)
         plan["raw_logic_tree"] = json_input.get("logic_tree", {})
+            
+        # 2. 🟢 核心新增：原地提煉出「純向量邏輯樹」，過濾掉傳統 SQL 欄位
+        vector_logic_tree = self._build_vector_logic_tree(root_tree)
+        plan["matrix_runtime_config"]["vector_logic_tree"] = vector_logic_tree
+        
+        if vector_logic_tree:
+            logger.info(f"[SQL Builder][SID: {s_id}] 成功構建純向量邏輯閘摘要: {json.dumps(vector_logic_tree, ensure_ascii=False)}")
+        else:
+            logger.info(f"[SQL Builder][SID: {s_id}] 無巢狀向量邏輯，將採用預設保底機制")
             
         logger.info(f"[SQL Builder][SID: {s_id}] 意圖解析完畢。全域算符: {plan['matrix_runtime_config']['op']}")
         log_function_timing("analyze_intent", s_id, time.perf_counter() - t0_analyze)
 
         return plan
     
-    
-    def _scan_for_vector_intent(self, node, plan, s_id):
+    def _build_vector_logic_tree(self, node: dict) -> dict | None:
         """
-        深度優先掃描邏輯樹 (DFS)，提取向量搜尋意圖
-        安全防禦版：100% 相容巢狀條件 (AND/OR) 與扁平單一條件結構
+        🟢 核心優化工具：遞迴過濾原始邏輯樹，只留下純向量欄位，並保留原本的 op 嵌套結構。
+        """
+        if not node or not isinstance(node, dict):
+            return None
+
+        # 狀況 A：容器型節點 (AND / OR 嵌套)
+        if "op" in node and "conditions" in node:
+            op_type = node.get("op", "AND").upper()
+            sub_conditions = []
+            
+            for child in node["conditions"]:
+                clean_child = self._build_vector_logic_tree(child)
+                if clean_child:
+                    sub_conditions.append(clean_child)
+            
+            # 如果這個控制閘下面有殘留向量條件
+            if sub_conditions:
+                # 邊角優化：如果只有一個子條件，不需要包 AND/OR，直接把子條件往上提
+                if len(sub_conditions) == 1:
+                    return sub_conditions[0]
+                return {
+                    "op": op_type,
+                    "conditions": sub_conditions
+                }
+            return None
+
+        # 狀況 B：葉子條件節點 (Field 節點)
+        key_raw = node.get("field")
+        key = key_raw.get("value") if isinstance(key_raw, dict) else key_raw
+        
+        if key is None:
+            # 相容樣式 B
+            for k, v in node.items():
+                if isinstance(v, dict) and "value" in v:
+                    key = k
+                    break
+
+        # 🌟 關鍵攔截點：只有屬於 SQLSetting 中定義的向量目標欄位才留下來
+        if key in SQLSetting.ALL_VECTOR_TARGETS:
+            return copy.deepcopy(node)
+            
+        return None
+    
+    
+    def _scan_for_vector_and_time_intent(self, node, plan, s_id, current_op="AND"):
+        """
+        深度優先掃描邏輯樹 (DFS)：
+        1. 專注攔截並解構所有時間條件（相容 open_at 與 between），保留巢狀邏輯。
+        2. 向量特徵的結構化抽離已由 _build_vector_logic_tree 接管，此處不再進行扁平化破壞。
         """
         if not node or not isinstance(node, dict):
             return
 
-        # 1. 處理容器型控制節點（包含子條件列表 conditions）
+        # 1. 處理容器型控制節點 (AND / OR 嵌套)
         if "conditions" in node and isinstance(node["conditions"], list):
-            # 建立運行配置大腦字典，如果 plan 裡還沒有，就初始化它
-            if "matrix_runtime_config" not in plan:
-                plan["matrix_runtime_config"] = {
-                    "op": node.get("op", "AND").upper(),  # 擷取該層運算子作為算符
-                    "feature_weights": {}
-                }
-            
-            # 遞迴向下鑽取
+            next_op = node.get("op", "AND").upper()
             for child in node["conditions"]:
-                self._scan_for_vector_intent(child, plan, s_id)
+                self._scan_for_vector_and_time_intent(child, plan, s_id, current_op=next_op)
             return
 
-        # 2. 處理單一條件節點（相容扁平化結構與新/舊單一節點）
-        # 💡 安全提權：使用安全分流確保不會對字串呼叫 .get()
+        # 2. 處理單一條件節點資訊 (解包與歸一化)
         key_raw = node.get("field")
         key = key_raw.get("value") if isinstance(key_raw, dict) else key_raw
         
         val_raw = node.get("value")
         val = val_raw.get("value") if isinstance(val_raw, dict) else val_raw
         
+        cmp_raw = node.get("cmp", "=")
+        cmp = cmp_raw.get("value") if isinstance(cmp_raw, dict) else cmp_raw
+        cmp = str(cmp).strip().lower()
+        
         weight_raw = node.get("weight", 1.0)
         weight = weight_raw.get("value") if isinstance(weight_raw, dict) else weight_raw
 
-        # 樣式 B 邊界保護（相容舊版自訂字典格式）
+        # 相容樣式 B 的舊語法結構
         if key is None:
             for k, v in node.items():
                 if isinstance(v, dict) and "value" in v:
                     key = k
                     val = v.get("value")
+                    cmp = str(v.get("cmp", "=")).strip().lower()
                     weight = v.get("weight", 1.0)
                     break
 
         if not key or val is None:
             return
 
-        # 資料歸一化 (確保轉換為字串陣列)
-        processed_vals = val if isinstance(val, list) else [val]
+        # 3. 🛡️ 時間條件精準攔截 (維持你的優秀設計)
+        if key in SQLSetting.TIME_FIELDS or cmp in SQLSetting.TIME_CMPS:
+            plan["need_time"] = True
+            if plan["target_time"] is None:
+                plan["target_time"] = {"op": current_op, "conditions": []}
+            
+            processed_vals = val if isinstance(val, list) else [val]
+            plan["target_time"]["conditions"].append({
+                "field": key,
+                "cmp": cmp,
+                "value": processed_vals,
+                "parent_op": current_op
+            })
+            logger.info(f"[SQL Builder][SID: {s_id}] 成功攔截並壓入標準時間池: [{current_op}] -> {key} {cmp} {processed_vals}")
+            return
 
-        # 3. 如果命中向量特徵目標（去中心化打平收集，相容 V2 動態精排矩陣）
+        # 4. 🎯 向量特徵標記防線
+        # 雖然我們不打平特徵，但依然要在 plan 中點亮 vector_needed 燈號，告訴系統後續要調用 Qdrant 服務
+        if key in SQLSetting.ALL_VECTOR_TARGETS:
+            plan["vector_needed"] = True
+            # 這裡可以選擇留下一行輕量級 log，確認掃描器有感應到向量欄位即可
+            logger.debug(f"[SQL Builder][SID: {s_id}] 掃描器偵測到向量目標欄位: {key}")
+
+        # 3. 處理向量特徵目標
+        processed_vals = val if isinstance(val, list) else [val]
         if key in SQLSetting.ALL_VECTOR_TARGETS:
             if "vector_keywords" not in plan:
                 plan["vector_keywords"] = {}
-                
             if key not in plan["vector_keywords"]:
                 plan["vector_keywords"][key] = []
-            
             for item in processed_vals:
                 item_str = str(item).strip()
-                if not item_str:
-                    continue
+                if not item_str: continue
                 if item_str not in plan["vector_keywords"][key]:
                     plan["vector_keywords"][key].append(item_str)
-                
-                # 關鍵聯動：將「欄位_特徵值」與「權重」精準對齊，塞進 V2 精排引擎配置中
                 feat_id = f"{key}_{item_str}"
-                if "matrix_runtime_config" not in plan:
+                if "feature_weights" not in plan["matrix_runtime_config"]:
                     plan["matrix_runtime_config"] = {"op": "AND", "feature_weights": {}}
                 if "feature_weights" not in plan["matrix_runtime_config"]:
                     plan["matrix_runtime_config"]["feature_weights"] = {}
-                
                 plan["matrix_runtime_config"]["feature_weights"][feat_id] = float(weight)
-                
             plan["vector_needed"] = True
             logger.info(f"[SQL Builder][SID: {s_id}] 成功捕捉動態語意特徵權重: {key} -> {processed_vals} (w: {weight})")
-    
+
+
 
     # 負責將邏輯樹轉成sql字串
     # 會接收關鍵參數 vector_result_ids:這是向量資料庫搜尋完後回傳的Place id列表
@@ -505,6 +578,10 @@ class HybridSQLBuilder:
         # =================================================================
         if key in SQLSetting.VECTOR_ONLY_FIELDS:
             logger.info(f"[SQL Builder][SID: {s_id}] 強制攔截純向量欄位 '{key}'，不生成 SQL WHERE")
+            return None
+        
+        if key in SQLSetting.TIME_FIELDS or cmp in SQLSetting.TIME_CMPS:
+            # 已經在前置 DFS 階段完整收集，這裡直接安全返回 None，徹底不生成時間的 SQL
             return None
 
         # 數據歸一化 (單元素列表轉單一數值)
