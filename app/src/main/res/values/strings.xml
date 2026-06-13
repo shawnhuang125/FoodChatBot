@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">KSU APP</string>
+
+    <!-- 聊天頁面 -->
+    <string name="chat_input_placeholder">在此輸入訊息...</string>
+    <string name="menu_title">選單</string>
+    <string name="refresh_chat">清空對話</string>
+    <string name="loading">載入中...</string>
+
+    <!-- 收藏頁面 -->
+    <string name="my_favorites">我的收藏</string>
+    <string name="search_favorites">搜尋您的收藏...</string>
+    <string name="add_category">新增收藏分類</string>
+    <string name="category_name">分類名稱</string>
+    <string name="select_icon">選擇圖示</string>
+    <string name="select_color">選擇顏色</string>
+    <string name="confirm">確定</string>
+    <string name="cancel">取消</string>
+    <string name="delete">刪除</string>
+    <string name="no_matching_stores">找不到符合的店家</string>
+
+    <!-- 商店詳情 -->
+    <string name="store_description">店家介紹</string>
+    <string name="address_label">地址：</string>
+    <string name="phone_label">電話：</string>
+    <string name="website_label">官方網站</string>
+    <string name="opening_hours">營業時間</string>
+    <string name="service_tags">服務標籤</string>
+    <string name="food_category_tags">食物種類標籤</string>
+    <string name="more_photos">更多圖片</string>
+    <string name="add_to_favorites">加入收藏</string>
+    <string name="remove_from_favorites">取消收藏</string>
+    <string name="distance_label">距離：</string>
+    <string name="closed">休息</string>
+    <string name="no_opening_hours">未提供時間</string>
+</resources>

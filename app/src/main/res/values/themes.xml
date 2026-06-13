@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 使用 AppCompat 主題以支援 AppCompatActivity -->
+    <style name="Theme.KSUAPP" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
