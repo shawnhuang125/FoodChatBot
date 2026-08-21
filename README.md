@@ -47,7 +47,7 @@ Search_api/
 ├── requirements.txt          # 套件依賴
 └── README.md
 ```
-## Deploy Guide (部署指南)
+## Git部署指南
 1. 環境需求 (Prerequisites)
 - 本專案使用 Python 3.10.11
 - 
@@ -97,3 +97,67 @@ python run.py
 ```
 伺服器將預設運行於 http://127.0.0.1:5003
 
+## Docker Compose 部署指南(windows)
+1. 將專案複製到指定之伺服器內
+2. 解壓縮
+3. 進入到專案跟目錄
+```
+cd Search_API_v4.3.0
+```
+4. 環境變數設定 (.env) 請在根目錄建立 .env 檔案：
+
+```
+cp .env.example .env
+```
+- 填入實際參數：手動編輯 .env 中的密碼、連線 IP 與 Host 即完成配置。
+5. 跳出去專案目錄
+```
+cd ..
+```
+6. 掛載嵌入模型
+
+- 把模型絕對路徑掛載到volumn裡面(其餘的頃都不要亂動)
+
+```
+search-api:
+    build:
+      context: ./Search_API_v4.3.0
+      dockerfile: Dockerfile         
+    image: search-api:latest
+    container_name: search-api-container
+    restart: always
+    ports:
+      - "5004:5004"
+    # .env 檔放在 Search_API_v4.3.0  資料夾內
+    env_file:
+      - ./Search_API_v4.3.0/.env
+    volumes:
+      - "[嵌入模型的絕對路徑]:/models/bge_m3:ro"
+    networks:
+      backend_net:
+        ipv4_address: 172.28.0.2     
+
+    # 等 Redis 健康檢查通過才啟動，防止 API 啟動時 Redis 還沒就緒
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+```
+- 按下`ctrl`+`s`存檔後即可離開
+
+
+6. 啟動docker compose服務
+```
+docker compose up -d
+```
+7. 查看服務狀態
+```
+docker compose logs -f
+```
