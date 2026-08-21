@@ -87,37 +87,9 @@ pip install -r requirements.txt
 - 環境變數設定 (.env) 請在根目錄建立 .env 檔案：
 
 ```
-# 關聯式資料庫連線資訊
-DB_HOST=192.168.1.112
-DB_PORT=4404
-DB_USER=root
-DB_PASSWORD=User@534
-DB_NAME=foodchatbot_database
-
-# 向量資料庫連線資訊
-VECTOR_DB_HOST = 192.168.1.112
-Vector_DB_PORT=6333
-COLLECTION_NAME = restaurants_0326
-# 照片網址
-IMAGES_URL = "http://192.168.1.112:5003/images/"
-
-# --- 效能監控與測試設定 ---
-# 搜尋架構名稱 (例如: Hybrid_V2_Original, Hybrid_V2_Optimized)
-SEARCH_ARCHITECTURE=Hybrid_V2_Full_Flow
-
-# 目前資料庫總筆數 (用於 CSV 紀錄對照，手動填寫目前測試規模)
-CURRENT_PLACE_COUNT=3200 
-
-# 效能日誌 CSV 儲存路徑
-PERFORMANCE_LOG_PATH=logs/performance_metrics.csv
-
-# Redis 連線資訊
-# 在 Docker Compose 網路中，可以直接用容器名稱當作 Host
-REDIS_HOST=192.168.1.118
-REDIS_PORT=6379
-REDIS_PASSWORD=
-REDIS_DB=0
+cp .env.example .env
 ```
+- 填入實際參數：手動編輯 .env 中的密碼、連線 IP 與 Host 即完成配置。
 
 3. 啟動伺服器 (Run)
 ```
