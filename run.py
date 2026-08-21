@@ -35,4 +35,4 @@ if __name__ == "__main__":
     # port: 埠號 (你原本設定 5004)
     # reload: 等同於 Flask 的 debug=True (僅建議開發環境使用)
     # uvicorn.run("run:app", host="0.0.0.0", port=5004, reload=False,log_level="info") 部屬到docker要換這一行
-    uvicorn.run("run:app", host="0.0.0.0", port=5004, reload=False,log_level="info")
+    uvicorn.run("run:app", host="0.0.0.0", port=5005, reload=False,log_level="info")

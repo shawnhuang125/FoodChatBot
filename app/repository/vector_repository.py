@@ -37,7 +37,8 @@ class VectorRepository:
     async def search_in_ids(
         self, 
         query_vector: List[float],
-        rdbms_ids: List[Any]
+        rdbms_ids: List[Any],
+        vector_name: str = "passage_all_vector"
     ) -> List[VectorSearchResult]:
         """
         純語意特徵召回通道：動態放行全量 ID 範疇，防止特徵分數被 limit 截斷
@@ -62,8 +63,9 @@ class VectorRepository:
             response = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector,
+                using=vector_name,
                 query_filter=search_filter,
-                limit=dynamic_limit,  # 👈 修正：不留任何死角，全量計算
+                limit=dynamic_limit, 
                 with_payload=True
             )
             results = response.points
@@ -71,8 +73,9 @@ class VectorRepository:
             results = await self.client.search(
                 collection_name=self.collection_name,
                 query_vector=query_vector,
+                using=vector_name,
                 query_filter=search_filter,
-                limit=dynamic_limit,  # 👈 修正：舊版 Search API 同步鬆綁
+                limit=dynamic_limit, 
                 with_payload=True
             )
 
@@ -91,14 +94,19 @@ class VectorRepository:
         self.client = await self._ensure_client()
         
         clean_ids = [int(i) for i in rdbms_ids if i is not None]
+        if not clean_ids:
+            return []
+        
+        # 將 limit 動態調整為 clean_ids 的長度，確保 100% 完整拉取所有 Payload
+        dynamic_limit = len(clean_ids)
         
         response, _ = await self.client.scroll(
             collection_name=self.collection_name,
             scroll_filter=qmodels.Filter(must=[
                 qmodels.FieldCondition(key="place_id", match=qmodels.MatchAny(any=clean_ids))
             ]),
-            with_payload=True, 
-            limit=500  
+            with_payload=True,
+            limit=dynamic_limit
         )
         
         # 直接回傳封裝好的 DTO，LLM 拿到的就是完整的上下文 (Context)
@@ -109,5 +117,7 @@ class VectorRepository:
             # 也可以把其他屬性一起補進去，讓 LLM 的 Prompt 更豐富
             cuisine_type=res.payload.get("cuisine_type", []),
             food_type=res.payload.get("food_type", []),
-            flavor=res.payload.get("flavor", [])
+            flavor=res.payload.get("flavor", []),
+            facility_tags=res.payload.get("facility_tags", []),
+            service_tags=res.payload.get("service_tags", [])
         ) for res in response if res.payload]

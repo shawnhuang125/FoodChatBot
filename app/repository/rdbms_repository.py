@@ -1,8 +1,6 @@
 # app/repository/rdbms_repository.py
 import time
-import asyncio
-from typing import List, Dict, Any, Tuple 
-import logging
+from typing import List, Dict, Any, Tuple, Optional
 import aiomysql  
 from app.utils.app_logger import logger
 
@@ -13,7 +11,7 @@ class RdbmsRepository:
         logger.info("[RDBMS Repo] 初始化模式: REAL DB (Async)")
 
     # 這裡加入 s_id 參數，預設為 None 增加相容性
-    async def execute_dynamic_query(self, sql: str, params: Dict[str, Any], s_id: str = None) -> Tuple[List[Dict[str, Any]], float]:
+    async def execute_dynamic_query(self, sql: str, params: Dict[str, Any], s_id: Optional[str] = None) -> Tuple[List[Dict[str, Any]], float]:
         """
         執行動態 SQL 查詢並回傳結果與執行時間。
         合併了原始的 _execute_real_db 邏輯。
@@ -31,7 +29,7 @@ class RdbmsRepository:
                     param_info = ", ".join([f"{k}: {v} ({type(v).__name__})" for k, v in params.items()])
                     logger.info(f"{log_prefix} 綁定參數: {param_info}")
                     
-                    # 2. 執行查詢
+                    # 2. 執行查詢(將佔位符 %s 與參數（Tuple）分開傳給 execute())
                     await cursor.execute(sql, params)
                     records = await cursor.fetchall()
                     

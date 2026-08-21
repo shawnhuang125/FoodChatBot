@@ -1,6 +1,5 @@
 # ./app/__init__.py
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request, HTTPException, Depends, status
 from app.utils.db import get_async_db_pool, close_all_connections
 from app.services.hard_filtering_service import HardFilteringService
 from app.routes import api_router
@@ -10,14 +9,6 @@ app_log_manager.setup_logging()
 
 # --- FastAPI 初始化 ---
 app = FastAPI(title="Place Search Service", version="2.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.include_router(api_router)
 
@@ -114,7 +105,7 @@ async def shutdown_event():
             
         # B. 呼叫你的關閉函式
         app_log_manager.stop_logging()
-        logger.info("[Logger] 關閉日誌監聽器成功。")
+        print("[Logger] 關閉日誌監聽器成功。")
         
     except Exception as e:
         print(f"!!! [Logger Shutdown Error] 監聽器關閉失敗: {e}")
@@ -129,4 +120,4 @@ async def shutdown_event():
         except:
             pass
 
-    logger.info("FastAPI service shutdown process finished.")
+    print("FastAPI service shutdown process finished.")

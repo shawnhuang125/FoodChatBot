@@ -1,11 +1,12 @@
 
 # app/routes/hybrid_search_routes.py
 from fastapi import APIRouter, HTTPException, Body, Query,Request
-from app.utils.performance_tracker import log_performance_to_csv
-from app.utils.data_formatter import format_response_data   # 格式化搜尋結果與補上照片
+from app.utils.performance_tracker import log_performance_to_csv, log_experiment_intent_to_csv
+from app.utils.data_formatter import format_response_data
+
 from app.config import Config
 from app.utils.app_logger import logger
-from app.utils.time_checker import is_open_now
+
 from app.utils.quality_checker import check_search_status
 from app.utils.quality_checker import evaluate_search_quality
 from app.utils.quality_checker import analyze_search_results
@@ -117,6 +118,7 @@ async def generate_query_and_search(
 
             if total_count == 0:
                 logger.warning(f"[Search][SID: {s_id}] SQL 查無資料，直接回傳")
+                log_experiment_intent_to_csv(plan, [])
                 search_status = check_search_status([], plan, total_count=0)
                 quality_label, is_fallback, ai_hint = evaluate_search_quality(
                     [], {"status": "no_data", "message": ""}, rdb_info=rdb_info, plan=plan
@@ -148,6 +150,7 @@ async def generate_query_and_search(
                 
                 if total_count == 0:
                     logger.warning(f"[Search][SID: {s_id}] 營業時間過濾後有效店家數為 0，中斷後續搜尋")
+                    log_experiment_intent_to_csv(plan, [])
                     return {
                         "s_id": s_id, "status": "no_data",
                         "data": {
@@ -175,6 +178,8 @@ async def generate_query_and_search(
                 plan=plan,
                 total_count=total_count
             )
+
+            log_experiment_intent_to_csv(plan, all_ranked_results)
 
             # 如果 vector_service 有回傳 updated_total_count，就用它；否則維持原值
             total_count = vector_search_info.get("updated_total_count", total_count)
@@ -233,16 +238,16 @@ async def generate_query_and_search(
             latency_sec = round(total_duration_route, 4)
 
             # 記錄到 CSV (原本的邏輯)
-            performance_metrics = {
-                "intent_content": vector_search_info.get("query_content"),
-                "hit_count": total_count,
-                "sql_service": round(sql_service_duration, 4),
-                "transition": round(transition_duration, 4),
-                "qdrant": round(qdrant_duration, 4),
-                "ranking": round(ranking_duration, 4),
-                "total": latency_sec
-            }
-            log_performance_to_csv(performance_metrics)
+            # performance_metrics = {
+            #     "intent_content": vector_search_info.get("query_content"),
+            #     "hit_count": total_count,
+            #     "sql_service": round(sql_service_duration, 4),
+            #     "transition": round(transition_duration, 4),
+            #     "qdrant": round(qdrant_duration, 4),
+            #     "ranking": round(ranking_duration, 4),
+            #     "total": latency_sec
+            # }
+            # log_performance_to_csv(performance_metrics)
 
             # 回傳精簡後的 Response 物件
             response = {

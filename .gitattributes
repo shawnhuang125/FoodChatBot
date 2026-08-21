@@ -1,0 +1,15 @@
+# 預設依系統自動處理換行
+* text=auto
+
+# 強制所有 Shell 腳本永遠保持 Linux LF 格式（避免 Docker 啟動失敗）
+*.sh text eol=lf
+*.bash text eol=lf
+entrypoint.sh text eol=lf
+
+# Python 檔案建議統一使用 LF
+*.py text eol=lf
+
+# 設定檔強制 LF
+.env* text eol=lf
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf

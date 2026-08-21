@@ -1,14 +1,21 @@
 #!/bin/bash
 set -e
 
-# 檢查模型目錄是否存在且不為空
-# 假設你的模型檔案通常至少包含 config.json 或 model.safetensors
-if [ ! -f "/code/m3_food_finetuned/config.json" ]; then
-    echo "偵測到模型缺失，正在從 HuggingFace 下載 BGE-M3..."
-    python3 -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='BAAI/bge-m3', local_dir='/code/m3_food_finetuned')"
+# 優先讀取環境變數，若無則預設為 /models/bge_m3
+TARGET_MODEL_PATH="${EMBEDDING_MODEL_PATH:-/models/bge_m3}"
+
+echo "正在檢查模型路徑: $TARGET_MODEL_PATH"
+
+# 檢查掛載路徑下是否存在模型核心檔案
+if [ ! -f "$TARGET_MODEL_PATH/config.json" ]; then
+    echo "=================================================="
+    echo "錯誤：未在 $TARGET_MODEL_PATH 偵測到模型檔案！"
+    echo "請確認 docker-compose.yml 的 volumes 是否正確對應至此路徑。"
+    echo "=================================================="
+    exit 1
 else
-    echo "模型已存在，跳過下載步驟。"
+    echo "模型檢驗通過 ($TARGET_MODEL_PATH)，準備啟動 FastAPI 服務..."
 fi
 
-# 執行原本的應用程式
+# 啟動應用程式
 exec python run.py

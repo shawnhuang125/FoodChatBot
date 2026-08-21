@@ -1,15 +1,14 @@
 from typing import List, Dict, Any, Optional, Tuple
 from app.repository.vector_repository import VectorRepository
 from sentence_transformers import SentenceTransformer
-from app.models.search_dto import VectorSearchResult
-from huggingface_hub import snapshot_download
 import numpy as np
 import math
 import time
 import json
 import os
-import re
 from app.utils.app_logger import logger
+from app.config import Config
+from app.utils.performance_tracker import log_semantic_scores_to_csv
 
 class RankSettings:
     ALLOWED_FIELDS = {"distance", "rating", "popularity", "similarity"}
@@ -26,26 +25,64 @@ class RankSettings:
         "distance": 0.10
     }
 
+    # ==========================================
+    # 🎯 語意與邏輯閘門檻設定 (Thresholds)
+    # ==========================================
+    DEFAULT_LOGIC_THRESHOLD: float = 0.65          # 預設邏輯閘/硬篩選門檻
+
+    # ==========================================
+    # 📝 理由包裝與評價文案門檻
+    # ==========================================
+    SEMANTIC_HIGH_THRESHOLD: float = 0.55          # 「高度符合期待」門檻
+    SEMANTIC_MEDIUM_THRESHOLD: float = 0.45        # 「語意大致符合」門檻
+
+    # ==========================================
+    # 人氣與距離指標等級門檻
+    # ==========================================
+    METRIC_HIGH_THRESHOLD: float = 0.85            # 「人氣爆棚 / 距離極近」門檻
+    METRIC_MEDIUM_THRESHOLD: float = 0.50          # 「人氣頗高 / 距離適中」門檻
+
+    # ==========================================
+    # 相似度搜尋欄位映射表
+    # ==========================================
+    VECTOR_FIELD_MAPPING = {
+    "cuisine": "cuisine_type_vector",
+    "cuisine_type": "cuisine_type_vector",
+    "food_type": "food_type_vector",
+    "flavor": "flavor_vector",
+    "facility_tags": "facility_tags_vector",
+    "service_tags": "service_tags_vector",
+    "review_summary": "review_summary_vector",
+    }
+    DEFAULT_FALLBACK_VECTOR = "passage_all_vector"  # 自訂/自由文本檢索使用的通道
+
 
 class VectorService:
     def __init__(self):
-        self.model_name = "BAAI/bge-m3"
-        base_dir = os.getcwd() 
-        self.model_path = os.path.abspath(os.path.join(base_dir, "models", "bge_m3"))
-        
-        if not os.path.exists(os.path.join(self.model_path, "config.json")):
-            logger.info(f"模型檔案不完整，準備下載至 {self.model_path}...")
-            os.makedirs(self.model_path, exist_ok=True) 
-            snapshot_download(
-                repo_id=self.model_name,
-                local_dir=self.model_path,
-                local_dir_use_symlinks=False  
+        # 1. 從環境變數讀取掛載路徑
+        self.model_path = os.path.abspath(Config.EMBEDDING_MODEL_PATH)
+
+        # 2. 鋼鐵嚴格檢查：若未設定環境變數，或該路徑下的 config.json 不存在，直接拋出例外拒絕啟動
+        if not self.model_path or not os.path.exists(
+            os.path.join(self.model_path, "config.json")
+        ):
+            error_msg = (
+                "模型掛載失敗，請確認是否 .env 檔案有寫入 EMBEDDING_MODEL_PATH"
             )
-        
-        logger.info(f"正在從 {self.model_path} 載入 BGE-M3 嵌入模型...")
-        self.model = SentenceTransformer(self.model_path) 
-        self.model.to('cuda') 
-        logger.info("模型載入完成")
+            logger.critical(
+                f"❌ [Model Mount Error] {error_msg} (當前路徑: '{self.model_path}')"
+            )
+            # 強制拋出 RuntimeError 終止 startup，絕不連外網下載
+            raise RuntimeError(error_msg)
+
+        # 3. 確定掛載成功，直接從本地載入
+        logger.info(
+            f"偵測到本地掛載模型，正在從 {self.model_path} 載入 BGE-M3..."
+        )
+        self.model = SentenceTransformer(self.model_path)
+        self.model.to("cuda")
+        logger.info("BGE-M3 模型已成功載入並移至 CUDA (GPU)")
+
         self.repo = VectorRepository()
 
     async def search_and_rank(
@@ -65,9 +102,9 @@ class VectorService:
         logical_op = runtime_config.get("op", "AND").upper() 
         llm_weights = runtime_config.get("feature_weights", {})
 
-        info = {"status": "processing", "message": ""}
+        info: Dict[str, Any] = {"status": "processing", "message": ""}
         flat_features = []  
-        task_weights = []
+        task_weights: List[float] = []
 
         # 1. 抽取語意特徵
         for field_key, val_list in keywords.items():
@@ -84,13 +121,15 @@ class VectorService:
                 if field_key == "cuisine":
                     query_sentence = f"主打菜系為{clean_item}風味的餐廳"
                 elif field_key == "food_type":
-                    # 🟢 核心微調：引入語意擴展，將單字與店面詞、食物詞自然融合成一個強特徵矩陣
-                    # 這樣當 clean_item 是 "麵" 時，會變成：包含麵食、麵條、麵店、麵點的餐飲小吃餐廳
-                    # 完美涵蓋所有 BGE-M3 可能對齊的詞頻，徹底解決單字語意塌陷！
-                    if len(clean_item) == 1:  # 針對像 "麵"、"飯" 這種單字做特殊語意加強
-                        query_sentence = f"主打{clean_item}食、{clean_item}類、{clean_item}店的餐飲餐廳與小吃攤"
+                    # 針對「飯」與「飯類」做專屬語意強化，徹底排除「飯店」等住宿歧義詞
+                    if clean_item in ["飯", "飯類"]:
+                        query_sentence = "米食與飯類料理"
+                    elif clean_item in ["麵", "麵類"]:
+                        query_sentence = "麵食與麵點料理"
+                    elif len(clean_item) == 1:  # 其他單字 (如 "湯", "粥")
+                        query_sentence = f"主打{clean_item}料理"
                     else:
-                        query_sentence = f"主打食物種類為{clean_item}、{clean_item}料理的餐飲餐廳"
+                        query_sentence = f"主打{clean_item}料理"
                         
                 elif field_key in ["service_tags", "facility_tags"]:
                     query_sentence = f"有提供{clean_item}的所有餐廳"
@@ -128,6 +167,8 @@ class VectorService:
             all_vector_results = await self.repo.get_dtos_by_ids(rdbms_ids=rdbms_ids)
             q_end = time.perf_counter()
             info["qdrant_time"] = q_end - q_start
+
+            plan["executed_vector_queries"] = ["無(純指標保底)"]
             
         else:
             # 印出有幾個通道與各自的關鍵字資訊
@@ -143,37 +184,45 @@ class VectorService:
             )
 
             query_sentences = [feat[1] for feat in flat_features]
-            query_vectors = self.model.encode(query_sentences, normalize_embeddings=True).tolist()
+
+            # 為了將實際執行的自然語言檢索字串保存到 plan 裡，供 CSV 輸出
+            plan["executed_vector_queries"] = query_sentences
+
+            query_vectors = self.model.encode(
+                query_sentences, 
+                normalize_embeddings=True, 
+                convert_to_numpy=True
+            ).tolist() # type: ignore
 
             q_start = time.perf_counter()
+
+
+            # 2. 逐一通道進行分流運算
             for i, (f_key, _, _) in enumerate(flat_features):
+                # 從 RankSettings 取出對應的 _vector 欄位名，若無命中則走 passage_all_vector
+                target_vector_name = RankSettings.VECTOR_FIELD_MAPPING.get(
+                    f_key, 
+                    RankSettings.DEFAULT_FALLBACK_VECTOR
+                )
+
                 vector_results = await self.repo.search_in_ids(
                     query_vector=query_vectors[i],
-                    rdbms_ids=rdbms_ids
+                    rdbms_ids=rdbms_ids,
+                    vector_name=target_vector_name
                 )
                 all_vector_results.extend(vector_results)
 
-                
                 current_score_map = {str(v.id): float(v.score) for v in vector_results}
+
                 for rid in rdbms_ids:
-                    # 💡 沒戳到 Qdrant 的人，鐵律給予 0.0，杜絕高分污染
-                    raw_score = current_score_map.get(str(rid), 0.0)
-
-                    # =================================================================
-                    # 🟢 核心修改：菜系/食物種類特徵的「軟性局部屏蔽 (Soft Masking)」
-                    # =================================================================
-                    # 設定一個寬鬆的特徵噪音臨界值。大於它代表「語意高度相關」(如 日本料理 與 日式料理)
-                    # 小於它代表「基本上是跨菜系的語意塌陷雜訊」(如 搜尋義式 卻撈到 壽司)
-                    if f_key in ["cuisine", "food_type"]:
-                        # 0.68 是一個完美的軟隔離線，能包容同義詞，但能切斷完全無關的日義跨界污染
-                        score = float(raw_score) if float(raw_score) >= 0.68 else 0.0
-                    else:
-                        score = float(raw_score)
-
-                    restaurant_features[str(rid)].append(score)
+                    rid_str = str(rid)
+                    raw_score = current_score_map.get(rid_str, 0.0)
+                    restaurant_features[rid_str].append(float(raw_score))
 
             q_end = time.perf_counter()
             info["qdrant_time"] = q_end - q_start
+
+
 
         final_results = await self._apply_hybrid_ranking_v2(
             db_map=db_map,                 
@@ -182,7 +231,7 @@ class VectorService:
             plan=plan,           
             task_weights=task_weights,
             vector_results=all_vector_results,
-            logic_threshold=kwargs.get('logic_threshold', 0.60)  
+            logic_threshold=kwargs.get('logic_threshold', RankSettings.DEFAULT_LOGIC_THRESHOLD)  
         )
         
         r_end = time.perf_counter()
@@ -190,7 +239,8 @@ class VectorService:
             "status": "completed",
             "updated_total_count": len(final_results),
             "ranking_time": round(r_end - r_start, 4),
-            "message": f"搜尋成功：已篩選出 {len(final_results)} 筆結果。"
+            "message": f"搜尋成功：已篩選出 {len(final_results)} 筆結果。",
+            "raw_score_matrix": plan.get("all_candidates_raw_scores", [])
         })
         return final_results, info
     
@@ -214,8 +264,8 @@ class VectorService:
         main_intent_indices = [idx for idx, (field, _, _) in enumerate(flat_features) if field != "service_tags"]
 
        # 1. 動態權重分配
-        valid_conditions = [
-            cond.get("field") for cond in sort_conditions 
+        valid_conditions: List[str] = [
+            str(cond.get("field")) for cond in sort_conditions 
             if isinstance(cond, dict) and cond.get("field") in RankSettings.ALLOWED_FIELDS
         ]
         if not valid_conditions:
@@ -264,7 +314,7 @@ class VectorService:
 
         # 組裝真實相似度矩陣 (N x M)
         S_matrix = np.array([matrix_data[v_id] for v_id in v_ids_order])
-        HARD_THRESHOLD = kwargs.get('logic_threshold', 0.60)
+        HARD_THRESHOLD = kwargs.get('logic_threshold', RankSettings.DEFAULT_LOGIC_THRESHOLD)
 
         # 解析全域 MUST 強制名單
         must_constraints = {}
@@ -301,11 +351,12 @@ class VectorService:
                     else:
                         return np.all(stacked == 1.0, axis=1).astype(float)
 
-                f_key = node.get("field")
+                f_key = str(node.get("field") or "")
                 val_list = node.get("value", [])
                 if not isinstance(val_list, list): 
                     val_list = [val_list]
                 
+                # 優化寫法：利用 NumPy 矩陣遮罩直接計算，乾淨又高速
                 leaf_mask = np.zeros(S_matrix.shape[0])
                 for item in val_list:
                     clean_item = str(item).strip()
@@ -313,13 +364,11 @@ class VectorService:
                     
                     if idx_dim is not None:
                         scores_dim = S_matrix[:, idx_dim]
-                        for idx_mat, _ in enumerate(v_ids_order):
-                            v_score = scores_dim[idx_mat]
-                            if v_score >= HARD_THRESHOLD and v_score > 0.0:
-                                leaf_mask[idx_mat] = 1.0
-                            elif f_key in ["cuisine", "food_type"] and v_score >= 0.65:
-                                leaf_mask[idx_mat] = 1.0
-                                
+                        # 一行矩陣比較替代原本的 for 迴圈
+                        item_mask = (scores_dim >= HARD_THRESHOLD) & (scores_dim > 0.0)
+                        # 只要 val_list 中有任何一個 item 符合，就標記為 1.0 (OR 邏輯)
+                        leaf_mask = np.maximum(leaf_mask, item_mask.astype(float))
+                                                
                 return leaf_mask
 
             gate_mask_vector = evaluate_vector_tree(v_logic_tree)
@@ -328,6 +377,42 @@ class VectorService:
 
         failed_count = len(v_ids_order) - int(np.sum(gate_mask_vector))
         logger.info(f"[精排大腦][SID: {s_id}] 階段一精準向量邏輯閘過濾完成。總候選: {len(v_ids_order)} | 通過: {int(np.sum(gate_mask_vector))} | 被生死門硬攔截: {failed_count}")
+
+
+        # =================================================================
+        # 🟢 論文實驗資料自動記錄：完全從 db_map 抓取店家原始欄位內容
+        # =================================================================
+        raw_scores_data = []
+        for idx_mat, v_id in enumerate(v_ids_order):
+            store_db = db_map.get(v_id, {})
+            passed = bool(gate_mask_vector[idx_mat])
+            
+            feat_list = []
+            for feat_idx, (f_key, _, clean_item) in enumerate(flat_features):
+                # 直接從 store_db 中取出對應欄位 (f_key) 的原始資料內容
+                raw_content = store_db.get(f_key, "")
+                if raw_content is None:
+                    raw_content = ""
+
+                feat_list.append({
+                    "field_key": f_key,                          # 選擇的欄位 (例: cuisine, service_tags)
+                    "target_keyword": clean_item,                # 搜尋關鍵字 (例: 火鍋, 包廂)
+                    "store_raw_array": str(raw_content),         # 店家資料庫中的原始欄位內容
+                    "score": float(S_matrix[idx_mat, feat_idx])   # 相似度分數
+                })
+
+            raw_scores_data.append({
+                "restaurant_id": v_id,
+                "passed_gate": passed,
+                "features": feat_list
+            })
+
+        # 寫入 CSV 檔案
+        log_semantic_scores_to_csv(
+            s_id=s_id,
+            raw_scores_data=raw_scores_data,
+            logic_threshold=HARD_THRESHOLD
+        )
 
         # ==========================================
         # 🟢 階段二：對剩下的店家用 service_tags 進行加權排序
@@ -424,7 +509,7 @@ class VectorService:
         qualified_stores.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
         if qualified_stores:
-            top_3 = [(s.get("restaurant_name"), s.get("hybrid_score")) for s in qualified_stores[:3]]
+            top_3 = [(str(s.get("restaurant_name") or ""), s.get("hybrid_score")) for s in qualified_stores[:3]]
             logger.info(f"[精排大腦][SID: {s_id}] 終極幾何重排結束。進入理由包裝的店家數: {len(qualified_stores)} | 前三名預覽: {top_3}")
 
 
@@ -523,12 +608,12 @@ class VectorService:
             # 🛡️ 6. 組裝排序權重指標文字
             geo_status_list = [f"語意匹配分:{sim_val:.2f}", f"店家評分:{r_val:.1f}星"]
             if weights.get("popularity", 0) > 0:
-                geo_status_list.append("人氣爆棚" if p_val >= 0.85 else ("人氣頗高" if p_val >= 0.50 else "客群穩定"))
+                geo_status_list.append("人氣爆棚" if p_val >= RankSettings.METRIC_HIGH_THRESHOLD else ("人氣頗高" if p_val >= RankSettings.METRIC_MEDIUM_THRESHOLD else "客群穩定"))
             if weights.get("distance", 0) > 0 and plan.get("distance_needed"):
-                geo_status_list.append("距離極近" if d_val >= 0.85 else ("距離適中" if d_val >= 0.50 else "距離稍遠"))
+                geo_status_list.append("距離極近" if d_val >= RankSettings.METRIC_HIGH_THRESHOLD else ("距離適中" if d_val >= RankSettings.METRIC_MEDIUM_THRESHOLD else "距離稍遠"))
 
             # 🛡️ 7. 拼裝終極理由文字（ranking_reason）
-            base_status = "高度符合期待" if sim_val >= 0.55 else ("語意大致符合" if sim_val >= 0.45 else "部分特徵相關")
+            base_status = "高度符合期待" if sim_val >= RankSettings.SEMANTIC_HIGH_THRESHOLD else ("語意大致符合" if sim_val >= RankSettings.SEMANTIC_MEDIUM_THRESHOLD else "部分特徵相關")
             match_str = f"【符合】{', '.join(matched_features)}" if matched_features else ""
             unmatch_str = f"【不符合】{', '.join(unmatched_features)}" if unmatched_features else ""
             geo_str = f"【排序權重指標】{', '.join(geo_status_list)}"
