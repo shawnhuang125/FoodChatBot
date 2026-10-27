@@ -45,7 +45,7 @@
 |shawnhuang125|混和式檢索子系統之開發與維護|[連結](https://github.com/shawnhuang125/FoodChatBot/tree/feature/lyujiahunag-search-api)|
 |shawnhuang125|業務搜尋子系統之開發與維護|[連結]()|
 |shawnhuang125|資料庫管理子系統之開發與維護|[連結](https://github.com/shawnhuang125/map-api-application)|
-|shawnhuang125|資料標記附註工具之開發與維護|[連結]()|
+|shawnhuang125|資料標記附註工具之開發與維護|[連結](https://github.com/shawnhuang125/Data_Labeling_Assistant)|
 |Nagisa0802|資料標記與協助資料結構定義|[連結]()|
 |frank0509|全域資料連結控制中樞子系統之開發與維護|[連結]()|
 |Wood-Shark|介面子系統之開發與維護|[連結]()|
