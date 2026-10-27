@@ -12,12 +12,20 @@ Controller 層匯入中心
 from fastapi import APIRouter, Depends, FastAPI, Request, HTTPException, status
 from .hybird_search_routes import place_search
 from app.utils.security import verify_ip_whitelist
+from .health_routes import health_router
 
 # 建立一個總路由
 api_router = APIRouter()
 
 # 註冊所有子路由
 # 未來如果有新的路由，直接在這裡增加一行即可
+
+# 健康檢查路由（無 IP 白名單阻擋，讓 Docker/Traefik 探針能正常訪問）
+api_router.include_router(
+    health_router
+)
+
+
 api_router.include_router(
     place_search, 
     tags=["Search"],

@@ -24,6 +24,10 @@ class SQLSetting:
     CANDIDATE_POOL_ORDER_BY = "p.rating DESC, p.user_ratings_total DESC"
 
 
+    # 第一階段SQL過濾的店家
+    DEFAULT_BUSINESS_STATUS = "正常營運"
+
+
     # =================================================================
     # 地理位置與距離配置 (Geospatial)
     # =================================================================
@@ -47,6 +51,7 @@ class SQLSetting:
         "restaurant_name": "p.name", 
         "address": "p.address", 
         "rating": "p.rating",
+        "price_level": "p.price_level",
         "phone": "p.phone",       
         "website": "p.website",
         "opening_hours": "p.opening_hours",
@@ -70,6 +75,7 @@ class SQLSetting:
         "time": "p.opening_hours",
         "address": "p.address", 
         "rating": "p.rating",
+        "price_level": "p.price_level",
         "cuisine": "pa.cuisine_type",
         "merchant_category": "pa.merchant_category",
         "restaurant_type": "pa.merchant_category"
@@ -84,6 +90,7 @@ class SQLSetting:
         "restaurant_name": "p.name",
         "address": "p.address",
         "rating": "p.rating",
+        "price_level": "p.price_level",
         "reviews_count": "p.user_ratings_total",
         "facility_tags": "pa.facility_tags",
         #"lat": "p.lat",
@@ -93,6 +100,14 @@ class SQLSetting:
     @staticmethod
     def get_initial_plan(s_id, json_input):
         """ 初始化搜尋計畫的標準結構 """
+
+        input_matrix_config = json_input.get("matrix_runtime_config", {})
+        matrix_cfg = {
+            "op": input_matrix_config.get("op", "AND"),
+            "feature_weights": input_matrix_config.get("feature_weights", {}),
+            "fusion_operator": input_matrix_config.get("fusion_operator", "log_geometric")
+        }
+
         return {
             "s_id": s_id,
             "location_source": "none",
@@ -103,7 +118,7 @@ class SQLSetting:
             "page_size": json_input.get("page_size", 3),
             "vector_needed": False,
             "vector_keywords": {},
-            "matrix_runtime_config": {"op": "AND", "feature_weights": {}}, # 🟢 補上初始宣告
+            "matrix_runtime_config": matrix_cfg,
             "photos_needed": False,
             "distance_needed": False,
             "user_location": None,
@@ -286,6 +301,19 @@ class HybridSQLBuilder:
 
 
         root_tree = json_input.get("logic_tree", {})
+
+        # 🟢 1. 確保 matrix_runtime_config 存在，並保留外層傳入的 fusion_operator
+        input_matrix_cfg = json_input.get("matrix_runtime_config", {})
+        if "matrix_runtime_config" not in plan:
+            plan["matrix_runtime_config"] = {}
+        
+        # 繼承傳入的算子（若無則維持現有設定或預設 log_geometric）
+        if "fusion_operator" in input_matrix_cfg:
+            plan["matrix_runtime_config"]["fusion_operator"] = input_matrix_cfg["fusion_operator"]
+        elif "fusion_operator" not in plan["matrix_runtime_config"]:
+            plan["matrix_runtime_config"]["fusion_operator"] = "log_geometric"
+
+        # 更新全域邏輯算符 op，不覆蓋其他設定
         plan["matrix_runtime_config"]["op"] = root_tree.get("op", "AND").upper()
 
         # 呼叫掃描器_scan_for_vector_and_time_intent()
@@ -300,15 +328,19 @@ class HybridSQLBuilder:
             logger.info(f"[SQL Builder][SID: {s_id}] 成功構建純向量邏輯閘摘要: {json.dumps(vector_logic_tree, ensure_ascii=False)}")
         else:
             logger.info(f"[SQL Builder][SID: {s_id}] 無巢狀向量邏輯，將採用預設保底機制")
+
+        # 🟢 ここを追加：外側から渡された fusion_operator を最終確定して上書き防止
+        input_matrix_cfg = json_input.get("matrix_runtime_config", {})
+        plan["matrix_runtime_config"]["fusion_operator"] = input_matrix_cfg.get("fusion_operator", "log_geometric")
             
-        logger.info(f"[SQL Builder][SID: {s_id}] 意圖解析完畢。全域算符: {plan['matrix_runtime_config']['op']}")
+        logger.info(f"[SQL Builder][SID: {s_id}] 意圖解析完畢。全域算符: {plan['matrix_runtime_config']['op']} | 算子: {plan['matrix_runtime_config']['fusion_operator']}")
         log_function_timing("analyze_intent", s_id, time.perf_counter() - t0_analyze)
 
         return plan
     
     def _build_vector_logic_tree(self, node: dict) -> dict | None:
         """
-        🟢 核心優化工具：遞迴過濾原始邏輯樹，只留下純向量欄位，並保留原本的 op 嵌套結構。
+        遞迴過濾原始邏輯樹，只留下純向量欄位，並保留原本的 op 嵌套結構。
         """
         if not node or not isinstance(node, dict):
             return None
@@ -323,11 +355,8 @@ class HybridSQLBuilder:
                 if clean_child:
                     sub_conditions.append(clean_child)
             
-            # 如果這個控制閘下面有殘留向量條件
+            # 如果這個控制閘下面有殘留向量條件，一律維持容器結構回傳
             if sub_conditions:
-                # 邊角優化：如果只有一個子條件，不需要包 AND/OR，直接把子條件往上提
-                if len(sub_conditions) == 1:
-                    return sub_conditions[0]
                 return {
                     "op": op_type,
                     "conditions": sub_conditions
@@ -339,13 +368,11 @@ class HybridSQLBuilder:
         key = key_raw.get("value") if isinstance(key_raw, dict) else key_raw
         
         if key is None:
-            # 相容樣式 B
             for k, v in node.items():
                 if isinstance(v, dict) and "value" in v:
                     key = k
                     break
 
-        # 🌟 關鍵攔截點：只有屬於 SQLSetting 中定義的向量目標欄位才留下來
         if key in SQLSetting.ALL_VECTOR_TARGETS:
             return copy.deepcopy(node)
             
@@ -355,20 +382,22 @@ class HybridSQLBuilder:
     def _scan_for_vector_and_time_intent(self, node, plan, s_id, current_op="AND"):
         """
         深度優先掃描邏輯樹 (DFS)：
-        1. 專注攔截並解構所有時間條件（相容 open_at 與 between），保留巢狀邏輯。
-        2. 向量特徵的結構化抽離已由 _build_vector_logic_tree 接管，此處不再進行扁平化破壞。
+        1. 遞迴走訪所有層級的 conditions（支援無限層 AND/OR 巢狀結構）。
+        2. 攔截時間條件。
+        3. 完整收集所有向量特徵關鍵字至 plan['vector_keywords']，絕不遺漏任何子條件。
+        4. 收集各特徵的 weight 至 plan['matrix_runtime_config']['feature_weights']。
         """
         if not node or not isinstance(node, dict):
             return
 
-        # 1. 處理容器型控制節點 (AND / OR 嵌套)
+        # 1. 🟢 遞迴走訪所有子條件節點 (無論巢狀幾層)
         if "conditions" in node and isinstance(node["conditions"], list):
-            next_op = node.get("op", "AND").upper()
+            next_op = node.get("op", current_op).upper()
             for child in node["conditions"]:
                 self._scan_for_vector_and_time_intent(child, plan, s_id, current_op=next_op)
             return
 
-        # 2. 處理單一條件節點資訊 (解包與歸一化)
+        # 2. 提取當前葉子節點資訊 (支援 dict 包裹與樣式 A / 樣式 B)
         key_raw = node.get("field")
         key = key_raw.get("value") if isinstance(key_raw, dict) else key_raw
         
@@ -382,7 +411,7 @@ class HybridSQLBuilder:
         weight_raw = node.get("weight", 1.0)
         weight = weight_raw.get("value") if isinstance(weight_raw, dict) else weight_raw
 
-        # 相容樣式 B 的舊語法結構
+        # 相容樣式 B 語法
         if key is None:
             for k, v in node.items():
                 if isinstance(v, dict) and "value" in v:
@@ -395,10 +424,10 @@ class HybridSQLBuilder:
         if not key or val is None:
             return
 
-        # 3. 🛡️ 時間條件精準攔截 (維持你的優秀設計)
+        # 3. 處理時間條件攔截
         if key in SQLSetting.TIME_FIELDS or cmp in SQLSetting.TIME_CMPS:
             plan["need_time"] = True
-            if plan["target_time"] is None:
+            if plan.get("target_time") is None:
                 plan["target_time"] = {"op": current_op, "conditions": []}
             
             processed_vals = val if isinstance(val, list) else [val]
@@ -408,36 +437,41 @@ class HybridSQLBuilder:
                 "value": processed_vals,
                 "parent_op": current_op
             })
-            logger.info(f"[SQL Builder][SID: {s_id}] 成功攔截並壓入標準時間池: [{current_op}] -> {key} {cmp} {processed_vals}")
+            logger.info(f"[SQL Builder][SID: {s_id}] 成功攔截時間條件: [{current_op}] -> {key} {cmp} {processed_vals}")
             return
 
-        # 4. 🎯 向量特徵標記防線
-        # 雖然我們不打平特徵，但依然要在 plan 中點亮 vector_needed 燈號，告訴系統後續要調用 Qdrant 服務
+        # 4. 🟢 處理向量特徵目標（累加而非覆蓋）
         if key in SQLSetting.ALL_VECTOR_TARGETS:
             plan["vector_needed"] = True
-            # 這裡可以選擇留下一行輕量級 log，確認掃描器有感應到向量欄位即可
-            logger.debug(f"[SQL Builder][SID: {s_id}] 掃描器偵測到向量目標欄位: {key}")
-
-        # 3. 處理向量特徵目標
-        processed_vals = val if isinstance(val, list) else [val]
-        if key in SQLSetting.ALL_VECTOR_TARGETS:
+            
             if "vector_keywords" not in plan:
                 plan["vector_keywords"] = {}
             if key not in plan["vector_keywords"]:
                 plan["vector_keywords"][key] = []
+            
+            if "matrix_runtime_config" not in plan:
+                plan["matrix_runtime_config"] = {}
+            if "feature_weights" not in plan["matrix_runtime_config"]:
+                plan["matrix_runtime_config"]["feature_weights"] = {}
+
+            processed_vals = val if isinstance(val, list) else [val]
             for item in processed_vals:
                 item_str = str(item).strip()
-                if not item_str: continue
+                if not item_str:
+                    continue
+                
+                # 確保不重複加入同一個關鍵字，但不同條件的值都會被收納
                 if item_str not in plan["vector_keywords"][key]:
                     plan["vector_keywords"][key].append(item_str)
+                
+                # 記錄各特徵權重
                 feat_id = f"{key}_{item_str}"
-                if "feature_weights" not in plan["matrix_runtime_config"]:
-                    plan["matrix_runtime_config"] = {"op": "AND", "feature_weights": {}}
-                if "feature_weights" not in plan["matrix_runtime_config"]:
-                    plan["matrix_runtime_config"]["feature_weights"] = {}
-                plan["matrix_runtime_config"]["feature_weights"][feat_id] = float(weight)
-            plan["vector_needed"] = True
-            logger.info(f"[SQL Builder][SID: {s_id}] 成功捕捉動態語意特徵權重: {key} -> {processed_vals} (w: {weight})")
+                try:
+                    plan["matrix_runtime_config"]["feature_weights"][feat_id] = float(weight)
+                except (ValueError, TypeError):
+                    plan["matrix_runtime_config"]["feature_weights"][feat_id] = 0.2
+
+            logger.info(f"[SQL Builder][SID: {s_id}] 成功捕捉語意特徵: {key} -> {processed_vals} (w: {weight})")
 
 
 
@@ -500,10 +534,24 @@ class HybridSQLBuilder:
             "LEFT JOIN Place_Attributes as pa ON p.id = pa.place_id"
         ]
         
+        p_status = f"p{self.param_counter}"
+        self.query_params[p_status] = SQLSetting.DEFAULT_BUSINESS_STATUS
+        self.param_counter += 1
+
+        where_clause = f"p.business_status = %({p_status})s"
         if where_sql:
-            sql_parts.append(f"WHERE {where_sql}")
-        
+            where_clause += f" AND ({where_sql})"
+
+        sql_parts.append(f"WHERE {where_clause}")
         sql_parts.append("GROUP BY p.id")
+
+        # 🟢 在此處完整緩存包含 business_status 的 WHERE 與 params
+        plan.update({
+            "_cached_where": where_clause,
+            "_cached_params": copy.deepcopy(self.query_params),
+            "generated_where_clause": where_clause,
+            "query_params": self.query_params
+        })
 
         # 判斷標準：如果 logic_tree 有條件，但解析出來的 where_sql 為空，代表是「純向量模式」
         is_pure_vector_mode = bool(logic_tree) and not where_sql
@@ -596,12 +644,11 @@ class HybridSQLBuilder:
             db_col = SQLSetting.SQL_WHERE_MAPPING[key]
             
             # 🟢 插入點：攔截 open_at 條件
-            if cmp == "open_at":
-                logger.info(f"[SQL Builder][SID: {s_id}] 偵測到營業時間過濾條件，標記 need_time")
-                plan["need_time"] = True  # 🟢 標記為 True
-                # 同時，如果有需要傳遞時間值，可以這樣存：
-                plan["target_time"] = val 
-                return None # 攔截 SQL 生成
+            # if cmp == "open_at":
+            #     logger.info(f"[SQL Builder][SID: {s_id}] 偵測到營業時間過濾條件，標記 need_time")
+            #     plan["need_time"] = True
+            #     plan["target_time"] = val
+            #     return None
 
             if key == "address":
                 val_list = val if isinstance(val, list) else [val]
@@ -691,11 +738,10 @@ class HybridSQLBuilder:
         t0_count_sql = time.perf_counter()
 
         where_sql = plan.get("_cached_where") 
-        self.query_params = plan.get("_cached_params", {})        
+        self.query_params = copy.deepcopy(plan.get("_cached_params", {}))        
 
         sql = "SELECT COUNT(DISTINCT p.id) AS total FROM all_places p "
 
-        # --- 修改這裡：不論是 WHERE 還是 SELECT 欄位有用到 pa. 表，都必須 LEFT JOIN ---
         if (where_sql and "pa." in where_sql) or any("pa." in field for field in plan.get("select_fields", [])):
             sql += " LEFT JOIN Place_Attributes as pa ON p.id = pa.place_id "
         

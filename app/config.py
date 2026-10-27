@@ -44,5 +44,10 @@ class Config:
     # -------- IP 白名單設定 --------
     # 將逗號分隔的 IP 字串轉為 set，加速 FastAPI 的 O(1) 搜尋比對
     ALLOWED_IPS = set(
-        ip.strip() for ip in os.getenv("ALLOWED_IPS", "127.0.0.1,172.24.48.1,172.28.0.1,localhost").split(",") if ip.strip()
+        ip.strip() 
+        for ip in os.getenv(
+            "ALLOWED_IPS", 
+            "127.0.0.1,172.20.0.10,172.20.0.1"  # 配合你目前的固定網段預設值
+        ).split(",") 
+        if ip.strip()
     )
