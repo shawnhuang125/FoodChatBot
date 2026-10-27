@@ -62,7 +62,6 @@
 
 ## 開發者資訊
 
-* **專案負責人：** 林聖峰
-* **學號：** 4120E013
-* **系所：** 崑山科技大學 資工系 3A
+* **專案負責人：** Wood-Shark
+* **Email：** mech_inf_cm33@icloud.com
 * **開發分支：** `feature/shenfunlin-app`
