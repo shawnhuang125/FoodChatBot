@@ -3,15 +3,6 @@
 - 這是一個提供對話式的餐飲推薦服務系統。
 - 本系統提供:用戶可透過時間過濾，地理過濾，相似度檢索之過濾查詢餐飲店家之功能。
 - 本專案之資料來源為:Google Place API。若需要資料進行資料庫部屬請聯絡管理員(shawnhuang125)!!!
-### 職責說明
-
-|負責人員|負責項目|
-|--|--|
-|shawnhuang125|混和式檢索子系統之開發與維護|
-|Nagisa0802|資料標記與協助資料結構定義|
-|frank0509|痊癒資料連結控制中樞子系統之開發與維護|
-|Wood-Shark|介面子系統之開發與維護|
-|Joynias|智慧與MCP工具服務整合子系統之開發與維護|
 
 ### **架構介紹**
 <img width="1420" height="702" alt="專案系統資料流架構圖V4 4 2 drawio_light (1)" src="https://github.com/user-attachments/assets/add6d5ad-80fd-45c2-b966-f70fa0a1c9d0" />
@@ -68,3 +59,15 @@
 - 使用Docker Compose部屬 Main API、MySQL、Qdrant、Search API、LLM API。
 - 讓前端 App 能穩定連線、發出查詢、接收推薦並展示結果。
 - 展示從「語意理解 → 查詢 → 回覆生成」的完整 AI 美食推薦流程。
+
+### 職責說明
+
+|負責人員|負責項目|
+|--|--|
+|shawnhuang125|混和式檢索子系統之開發與維護|
+|Nagisa0802|資料標記與協助資料結構定義|
+|frank0509|痊癒資料連結控制中樞子系統之開發與維護|
+|Wood-Shark|介面子系統之開發與維護|
+|Joynias|智慧與MCP工具服務整合子系統之開發與維護|
+
+
