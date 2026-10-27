@@ -8,7 +8,7 @@
 |Nagisa0802|資料標記與協助資料結構定義|
 |frank0509|痊癒資料連結控制中樞子系統之開發與維護|
 |Wood-Shark|介面子系統之開發與維護|
-|||
+|Joynias|智慧與MCP工具服務整合子系統之開發與維護|
 
 ### **架構介紹**
 <img width="1420" height="702" alt="專案系統資料流架構圖V4 4 2 drawio_light (1)" src="https://github.com/user-attachments/assets/add6d5ad-80fd-45c2-b966-f70fa0a1c9d0" />
