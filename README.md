@@ -49,6 +49,6 @@
 |Nagisa0802|資料標記與協助資料結構定義|[入口連結]()|
 |frank0509|全域資料連結控制中樞子系統之開發與維護|[入口連結]()|
 |Wood-Shark|介面子系統之開發與維護|[入口連結]()|
-|Joynias|智慧Agent與MCP工具服務整合子系統之開發與維護|[入口連結]()|
+|Joynias|智慧Agent與MCP工具服務整合子系統之開發與維護|[入口連結](https://github.com/shawnhuang125/FoodChatBot/tree/feature/minfuchen-chat-logic)|
 
 
