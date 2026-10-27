@@ -1,6 +1,7 @@
 # AI美食聊天機器人
 ## **專案架構介紹**
 <img width="1420" height="702" alt="專案系統資料流架構圖V4 4 2 drawio_light (1)" src="https://github.com/user-attachments/assets/add6d5ad-80fd-45c2-b966-f70fa0a1c9d0" />
+
 - 本專案採用微服務設計串接個子系統提供完整的MCP AI餐飲推薦對話服務
 - **介面子系統**:使用原生Kotlin開發，將全域資料連結控制中樞子系統轉傳來自MCP子系統的回傳系統回與混和式檢索子系統的店家查詢內容。
 - **痊癒資料連結控制中樞子系統**:使用Python 3.11.9開發，後端框架採用FastAPI提供轉傳服務並針對資料進行二段式。
