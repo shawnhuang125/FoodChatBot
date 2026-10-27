@@ -42,7 +42,7 @@
 
 |負責人員|負責項目|說明|
 |--|--|--|
-|shawnhuang125|混和式檢索子系統之開發與維護|[連結]()|
+|shawnhuang125|混和式檢索子系統之開發與維護|[連結](https://github.com/shawnhuang125/FoodChatBot/tree/feature/lyujiahunag-search-api)|
 |shawnhuang125|業務搜尋子系統之開發與維護|[連結]()|
 |shawnhuang125|資料庫管理子系統之開發與維護|[連結]()|
 |shawnhuang125|資料標記附註工具之開發與維護|[連結]()|
