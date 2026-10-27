@@ -1,4 +1,4 @@
-# GastrobotAI 基於RAG架構之個人化AI美食推薦對話系統 | [Demo影片](https://youtube.com/shorts/OAhBlip2jk8)
+## GastrobotAI 基於RAG架構之個人化AI美食推薦對話系統 | [Demo影片](https://youtube.com/shorts/OAhBlip2jk8)
 ### 專案簡介
 - 本專題旨在打造一個專為本校學生設計的台南美食聊天助理,協助同學以最自然,最直覺的方式快速探索校園周邊餐廳。為達成此目標,本專題規劃以下功能與技術實作面向:
 
